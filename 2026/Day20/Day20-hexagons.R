@@ -99,16 +99,54 @@ greenhood_nz1 <- greenhood_nz |>
     quality_grade
   )
 
-greenhood_nz2 <- greenhood_nz1 |>
-  mutate(
-    scientific_name = ifelse(
-      scientific_name != "Pterostylis banksii",
-      "Other",
-      scientific_name
-    )
-  )
 
 bg_col <- "#F5F5F5"
+
+hex_size <- 20000
+
+nz_proj <- nz1_sf |>
+  st_crop(xmin = 166, xmax = 179, ymin = -47.8, ymax = -34.2) |>
+  st_transform(2193) |>
+  st_union()
+
+#st_make_grid covers the bounding box of nz_proj with a regular grid of cells
+#cellsize is in the units of the crs, so 20000 is 20 km in NZTM (metres)
+#square = FALSE gives hexagons instead of squares; for hexagons cellsize is the distance between opposite flat sides
+#it returns an sfc of polygons, so st_sf makes it a data frame, and st_filter drops hexes that miss the land
+hex_grid <- nz_proj |>
+  st_make_grid(cellsize = hex_size, square = FALSE) |>
+  st_sf() |>
+  mutate(hex_id = row_number()) |>
+  st_filter(nz_proj)
+
+obs_sf <- greenhood_nz1 |>
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326) |>
+  st_transform(2193)
+
+hex_counts <- hex_grid |>
+  mutate(n_obs = lengths(st_intersects(hex_grid, obs_sf)))
+
+hx <- ggplot() +
+  geom_sf(data = nz_proj, fill = bg_col, color = "grey") +
+  geom_sf(
+    data = filter(hex_counts, n_obs > 0),
+    mapping = aes(fill = n_obs),
+    color = NA
+  ) +
+  scale_fill_viridis_c(trans = "log10") +
+  theme_void() +
+  theme(legend.position = "bottom")
+
+hx
+
+ggsave(
+  "output/hexbin_map.png",
+  plot = hx,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 300
+)
 
 mp <- ggplot() +
   geom_sf(data = nz1_sf, fill = "#F5F5F5", color = "grey") +
