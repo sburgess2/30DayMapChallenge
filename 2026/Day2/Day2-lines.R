@@ -1,15 +1,14 @@
 library(tidyverse)
 library(sf)
 library(osrm)
-library(leaflet)
-library(fontawesome)
-library(htmlwidgets)
-library(htmltools)
 library(maptiles)
 library(tidyterra)
 library(shadowtext)
+library(ggtext)
+library(ragg)
+library(sbBrand)
 
-stops_geocoded <- read_csv("data/persuasivethinking/stops_geocoded.csv") |>
+stops_geocoded <- read_csv("2026/Day2/data/stops_geocoded.csv") |>
   filter(travel_day <= 7)
 
 all_stops_unique <- stops_geocoded |>
@@ -100,166 +99,6 @@ routes_sf <- routes_geocoded |>
   ) |>
   sf::st_as_sf()
 
-fa_svg_icon <- function(name, fill = "black", size = 16) {
-  url <- sprintf(
-    "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/svgs/solid/%s.svg",
-    name
-  )
-  svg <- paste(readLines(url, warn = FALSE), collapse = "")
-  svg_colored <- sub("<svg ", sprintf('<svg fill="%s" ', fill), svg)
-  data_uri <- paste0(
-    "data:image/svg+xml;utf8,",
-    utils::URLencode(svg_colored, reserved = TRUE)
-  )
-  makeIcon(iconUrl = data_uri, iconWidth = size, iconHeight = size)
-}
-
-icons_svg <- iconList(
-  airport = fa_svg_icon("plane", "lightgrey"),
-  camping = fa_svg_icon("tent", "lightgrey"),
-  culture = fa_svg_icon("camera", "lightgrey"),
-  rafting = fa_svg_icon("water", "lightgrey"),
-  pass = fa_svg_icon("mountain", "lightgrey"),
-  temple = fa_svg_icon("vihara", "lightgrey"),
-  wildlife = fa_svg_icon("crow", "lightgrey"),
-  hotel = fa_svg_icon("building", "lightgrey")
-)
-
-route_legend <- tags$div(
-  style = paste(
-    "background: rgba(250, 250, 250);",
-    "color: #1E2019;",
-    "border: 2px solid #777;",
-    "border-top: none;",
-    "padding: 2px 8px 4px;",
-    "font-size: 11px;",
-    "line-height: 22px;"
-  ),
-  tags$b("Route type"),
-  tags$br(),
-  tags$span(
-    style = "display:inline-block; width:36px; height:0; border-top:4px solid #AB6AD5; vertical-align:middle; margin-right:6px;"
-  ),
-  "Driving",
-  tags$br(),
-  tags$span(
-    style = "display:inline-block; width:36px; height:0; border-top:3px dashed #DC5FBD; vertical-align:middle; margin-right:6px;"
-  ),
-  "Walking"
-)
-
-build_day_map <- function(day) {
-  day_stops <- all_stops_cat |>
-    filter(
-      travel_day == day,
-      category %in% names(icons_svg),
-      category != "hotel"
-    )
-
-  day_routes <- routes_sf |>
-    filter(dest_travel_day == day)
-
-  day_hotel_places <- unique(c(
-    day_routes$origin_place,
-    day_routes$destination_place
-  ))
-
-  day_towns <- all_stops_cat |>
-    filter(category == "hotel", place %in% day_hotel_places) |>
-    left_join(hotel_towns, by = c("place" = "hotel")) |>
-    rename(hotel = place)
-
-  if (day == 4) {
-    day4_place_order <- c(
-      "Sonam Zhidey Resort",
-      "White Temple",
-      "ChuZom-Haa Highway1",
-      "ChuZom-Haa Highway2",
-      "Tango Monastery"
-    )
-
-    day4_waypoints <- all_stops_unique |>
-      filter(place %in% day4_place_order) |>
-      distinct(place, .keep_all = TRUE) |>
-      arrange(match(place, day4_place_order)) |>
-      st_as_sf(coords = c("long", "lat"), crs = 4326)
-
-    day4_drive <- osrmRoute(loc = day4_waypoints, osrm.profile = "car") |>
-      mutate(route_type = "driving")
-
-    day_routes <- day_routes |>
-      filter(route_type != "driving") |>
-      bind_rows(day4_drive)
-  }
-
-  leaflet() |>
-    addProviderTiles("Esri.WorldImagery") |>
-    addPolylines(
-      data = day_routes |> filter(route_type == "driving"),
-      color = "#AB6AD5FF",
-      weight = 4,
-      opacity = 0.8,
-      dashArray = NULL
-    ) |>
-    addPolylines(
-      data = day_routes |> filter(route_type == "walking"),
-      color = "#DC5FBDFF",
-      weight = 3,
-      opacity = 0.8,
-      dashArray = "1, 5"
-    ) |>
-    addMarkers(
-      data = day_stops,
-      lat = ~lat,
-      lng = ~long,
-      icon = ~ icons_svg[category],
-      label = ~ paste0("Day ", as.integer(travel_day), ": ", place)
-    ) |>
-    addMarkers(
-      data = day_towns,
-      lat = ~lat,
-      lng = ~long,
-      icon = icons_svg[["hotel"]],
-      label = ~ paste0(town, ": ", hotel)
-    ) |>
-    addLabelOnlyMarkers(
-      data = day_towns,
-      lat = ~lat,
-      lng = ~long,
-      label = ~town,
-      labelOptions = labelOptions(
-        noHide = TRUE,
-        textOnly = TRUE,
-        style = list(
-          "font-weight" = "bold",
-          "font-size" = "14px",
-          "color" = "white"
-        )
-      )
-    ) |>
-    addScaleBar(
-      position = "bottomleft",
-      options = scaleBarOptions(
-        maxWidth = 100,
-        updateWhenIdle = TRUE,
-        imperial = FALSE
-      )
-    ) |>
-    addControl(
-      html = route_legend,
-      position = "bottomright",
-      className = "route-legend"
-    ) |>
-    htmlwidgets::prependContent(
-      tags$style(HTML(".route-legend { padding: 0 !important; }"))
-    )
-}
-
-day2_map <- build_day_map(2)
-day3_map <- build_day_map(3)
-day4_map <- build_day_map(4)
-day6_map <- build_day_map(6)
-
 day3_routes <- routes_sf |>
   filter(dest_travel_day == 3)
 
@@ -285,7 +124,7 @@ day3_tiles <- get_tiles(
   x = st_as_sfc(day3_bbox),
   provider = "Esri.WorldImagery",
   crop = TRUE,
-  zoom = 11,
+  zoom = 14,
   verbose = TRUE
 )
 
@@ -325,13 +164,47 @@ day3_static_map <- ggplot() +
     size = 4.5,
     vjust = -0.6
   ) +
+  annotate(
+    geom = "shadowtext",
+    x = day3_bbox["xmax"],
+    y = day3_bbox["ymin"],
+    label = "Basemap: Esri World Imagery (Esri, Maxar, Earthstar Geographics)",
+    color = "white",
+    bg.color = "black",
+    size = 2.5,
+    hjust = 1.02,
+    vjust = -0.8
+  ) +
   coord_sf(
     default_crs = st_crs(4326),
     xlim = c(day3_bbox["xmin"], day3_bbox["xmax"]),
     ylim = c(day3_bbox["ymin"], day3_bbox["ymax"]),
     expand = FALSE
   ) +
+  labs(
+    title = "Day 3 in Bhutan: from Paro over the 3,988 m Chelela pass to the Haa Valley",
+    subtitle = paste(
+      "In early April 2026 I was very lucky to spend two weeks on holiday in Bhutan,",
+      "a special country with a rich culture and beautiful forests for hiking.",
+      "On Day 3 we travelled from Paro to the Haa Valley.",
+      "On the way we hiked from Kila Goemba, a cliffside nunnery,",
+      "to the top of Chelela Pass (3,988 m).",
+      "We then visited the Black Temple, built in the 7th century, and the White Temple."
+    ),
+    caption = sb_social_caption()
+  ) +
   theme_void() +
-  theme(legend.position = "none")
+  theme(
+    legend.position = "none",
+    plot.title.position = "plot",
+    plot.title = element_textbox_simple(
+      face = "bold",
+      size = rel(1.4),
+      margin = margin(b = 6)
+    ),
+    plot.subtitle = element_textbox_simple(margin = margin(b = 10)),
+    plot.caption = element_markdown(hjust = 0, margin = margin(t = 10)),
+    plot.margin = margin(10, 10, 10, 10)
+  )
 
 day3_static_map
