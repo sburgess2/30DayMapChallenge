@@ -7,6 +7,11 @@ library(shadowtext)
 library(ggtext)
 library(ragg)
 library(sbBrand)
+library(systemfonts)
+
+require_font("Work Sans")
+
+font <- "Work Sans"
 
 stops_geocoded <- read_csv("2026/Day2/data/stops_geocoded.csv") |>
   filter(travel_day <= 7)
@@ -103,7 +108,8 @@ day3_routes <- routes_sf |>
   filter(dest_travel_day == 3)
 
 day3_stops <- all_stops_cat |>
-  filter(travel_day == 3, category != "hotel")
+  filter(travel_day == 3, category != "hotel") |>
+  mutate(place = if_else(place == "White Temple", "Black Temple", place))
 
 day3_hotel_places <- unique(c(
   day3_routes$origin_place,
@@ -132,14 +138,23 @@ day3_static_map <- ggplot() +
   geom_spatraster_rgb(data = day3_tiles) +
   geom_sf(
     data = day3_routes |> filter(route_type == "driving"),
-    color = "#AB6AD5FF",
+    mapping = aes(color = "Car route", linetype = "Car route"),
     linewidth = 1.4
   ) +
   geom_sf(
     data = day3_routes |> filter(route_type == "walking"),
-    color = "#DC5FBDFF",
-    linewidth = 1.2,
-    linetype = "dotted"
+    mapping = aes(color = "Hiking route", linetype = "Hiking route"),
+    linewidth = 1.2
+  ) +
+  scale_color_manual(
+    name = NULL,
+    breaks = c("Car route", "Hiking route"),
+    values = c("Car route" = "#AB6AD5", "Hiking route" = "#DC5FBD")
+  ) +
+  scale_linetype_manual(
+    name = NULL,
+    breaks = c("Car route", "Hiking route"),
+    values = c("Car route" = "solid", "Hiking route" = "dashed")
   ) +
   geom_point(
     data = day3_stops,
@@ -152,7 +167,9 @@ day3_static_map <- ggplot() +
     mapping = aes(x = long, y = lat, label = place),
     color = "white",
     bg.color = "black",
-    size = 3,
+    family = font,
+    fontface = "bold",
+    size = 10 / .pt,
     vjust = 1.8
   ) +
   geom_shadowtext(
@@ -161,17 +178,20 @@ day3_static_map <- ggplot() +
     color = "white",
     bg.color = "black",
     fontface = "bold",
-    size = 4.5,
+    family = font,
+    size = 13 / .pt,
     vjust = -0.6
   ) +
   annotate(
     geom = "shadowtext",
     x = day3_bbox["xmax"],
     y = day3_bbox["ymin"],
-    label = "Basemap: Esri World Imagery (Esri, Maxar, Earthstar Geographics)",
+    label = "Basemap: Esri World Imagery",
     color = "white",
     bg.color = "black",
-    size = 2.5,
+    family = font,
+    size = 9 / .pt,
+    fontface = "bold",
     hjust = 1.02,
     vjust = -0.8
   ) +
@@ -189,22 +209,51 @@ day3_static_map <- ggplot() +
       "On Day 3 we travelled from Paro to the Haa Valley.",
       "On the way we hiked from Kila Goemba, a cliffside nunnery,",
       "to the top of Chelela Pass (3,988 m).",
-      "We then visited the Black Temple, built in the 7th century, and the White Temple."
+      "We then visited the Black Temple, built in the 7th century."
     ),
     caption = sb_social_caption()
   ) +
-  theme_void() +
+  theme_void(base_family = font) +
   theme(
-    legend.position = "none",
+    legend.position = "top",
+    legend.justification = "left",
+    legend.key.width = unit(1.5, "cm"),
+    legend.text = element_text(color = "#3b3b3b", size = 10),
     plot.title.position = "plot",
     plot.title = element_textbox_simple(
+      family = font,
       face = "bold",
       size = rel(1.4),
       margin = margin(b = 6)
     ),
-    plot.subtitle = element_textbox_simple(margin = margin(b = 10)),
+    plot.subtitle = element_textbox_simple(
+      color = "#3b3b3b",
+      margin = margin(b = 10)
+    ),
     plot.caption = element_markdown(hjust = 0, margin = margin(t = 10)),
     plot.margin = margin(10, 10, 10, 10)
   )
 
 day3_static_map
+
+ggsave(
+  filename = "2026/Day2/output/day3_bhutan.png",
+  plot = day3_static_map,
+  device = ragg::agg_png,
+  width = 8,
+  height = 6.5,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = "2026/Day2/output/day3_bhutan_insta.png",
+  plot = day3_static_map,
+  device = ragg::agg_png,
+  width = 8,
+  height = 10,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
