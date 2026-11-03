@@ -68,9 +68,23 @@ park_labels <- protected_designated |>
   ) |>
   mutate(
     label = NAME |>
-      str_remove(" National Park| Wildlife Sanctuary| Strict Nature Reserve")
+      str_remove(" National Park| Wildlife Sanctuary| Strict Nature Reserve") |>
+      str_replace("^Jigme (Khesar|Karsar)", "Jigme\n\\1") |>
+      str_replace("^Jigme Singye Wangchuck", "Jigme Singye\nWangchuck"),
+    label_colour = if_else(
+      designation == "Strict nature reserve",
+      "white",
+      "black"
+    )
   ) |>
   st_point_on_surface()
+
+phrumsengla <- park_labels$label == "Phrumsengla"
+
+st_geometry(park_labels)[phrumsengla] <- st_geometry(park_labels)[
+  phrumsengla
+] +
+  c(0, -0.1)
 
 protected_pct <- round(
   as.numeric(sum(st_area(protected_areas))) /
@@ -79,7 +93,7 @@ protected_pct <- round(
 )
 
 plot_title <- str_glue(
-  "{protected_pct}% of Bhutan is a designated protected area"
+  "Half of Bhutan is protected land"
 )
 
 social_caption <- sb_social_caption(
@@ -105,9 +119,8 @@ parks_map <- ggplot() +
   ) +
   geom_sf_text(
     data = park_labels,
-    mapping = aes(label = label),
+    mapping = aes(label = label, colour = label_colour),
     size = 2.8,
-    colour = "grey10",
     fontface = "bold",
     check_overlap = TRUE
   ) +
@@ -116,6 +129,7 @@ parks_map <- ggplot() +
     breaks = rev(designation_levels),
     name = NULL
   ) +
+  scale_colour_identity() +
   labs(title = plot_title, caption = social_caption) +
   theme_void() +
   theme(
@@ -124,7 +138,11 @@ parks_map <- ggplot() +
     legend.location = "plot",
     plot.title.position = "plot",
     plot.caption.position = "plot",
-    plot.title = element_text(face = "bold", hjust = 0),
+    plot.title = element_text(
+      face = "bold",
+      hjust = 0,
+      margin = margin(b = 10)
+    ),
     plot.caption = element_textbox_simple(hjust = 0, margin = margin(t = 10))
   )
 
