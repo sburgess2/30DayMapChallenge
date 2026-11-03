@@ -2,6 +2,8 @@ library(tidyverse)
 library(sf)
 library(wdpar)
 library(rnaturalearth)
+library(ggtext)
+library(sbBrand)
 
 wdpa_zip <- "data/wdpa/WDPA_Oct2026_BTN-shapefile.zip"
 
@@ -70,6 +72,29 @@ park_labels <- protected_designated |>
   ) |>
   st_point_on_surface()
 
+protected_pct <- round(
+  as.numeric(sum(st_area(protected_areas))) /
+    as.numeric(sum(st_area(bhutan))) *
+    100
+)
+
+plot_title <- str_glue(
+  "{protected_pct}% of Bhutan is a designated protected area"
+)
+
+social_caption <- sb_social_caption(
+  data_source = "The World Database on Protected Areas"
+)
+
+library(camcorder)
+gg_record(
+  device = "png",
+  width = 10,
+  height = 6,
+  units = "in",
+  dpi = 300
+)
+
 parks_map <- ggplot() +
   geom_sf(data = bhutan, fill = "grey95", colour = NA) +
   geom_sf(
@@ -91,10 +116,21 @@ parks_map <- ggplot() +
     breaks = rev(designation_levels),
     name = NULL
   ) +
+  labs(title = plot_title, caption = social_caption) +
   theme_void() +
-  theme(legend.position = "top")
+  theme(
+    legend.position = "top",
+    legend.justification = "left",
+    legend.location = "plot",
+    plot.title.position = "plot",
+    plot.caption.position = "plot",
+    plot.title = element_text(face = "bold", hjust = 0),
+    plot.caption = element_textbox_simple(hjust = 0, margin = margin(t = 10))
+  )
 
 parks_map
+
+record_polaroid()
 
 ggsave(
   "output/day03-bhutan-protected-areas.png",
