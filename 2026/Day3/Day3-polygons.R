@@ -37,11 +37,11 @@ designation_levels <- c(
 )
 
 designation_colours <- c(
-  "National park" = "#009E73",
-  "Wildlife sanctuary" = "#E69F00",
-  "Strict nature reserve" = "#CC79A7",
-  "Biological corridor" = "#56B4E9",
-  "Other protected area" = "#BBBBBB"
+  "National park" = "#DBB6AE",
+  "Wildlife sanctuary" = "#D6D7B8",
+  "Strict nature reserve" = "#5e6d3f",
+  "Biological corridor" = "#AEB7C5",
+  "Other protected area" = "#928B8F"
 )
 
 protected_designated <- protected_areas |>
@@ -60,7 +60,10 @@ protected_designated <- protected_areas |>
   arrange(designation)
 
 park_labels <- protected_designated |>
-  filter(designation %in% c("National park", "Wildlife sanctuary", "Strict nature reserve")) |>
+  filter(
+    designation %in%
+      c("National park", "Wildlife sanctuary", "Strict nature reserve")
+  ) |>
   mutate(
     label = NAME |>
       str_remove(" National Park| Wildlife Sanctuary| Strict Nature Reserve")
@@ -68,7 +71,7 @@ park_labels <- protected_designated |>
   st_point_on_surface()
 
 parks_map <- ggplot() +
-  geom_sf(data = bhutan, fill = "grey97", colour = "grey60") +
+  geom_sf(data = bhutan, fill = "grey95", colour = NA) +
   geom_sf(
     data = protected_designated,
     mapping = aes(fill = designation),
@@ -89,7 +92,7 @@ parks_map <- ggplot() +
     name = NULL
   ) +
   theme_void() +
-  theme(legend.position = "bottom")
+  theme(legend.position = "top")
 
 parks_map
 
