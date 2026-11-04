@@ -6,6 +6,7 @@ library(systemfonts)
 library(ragg)
 library(magick)
 library(patchwork)
+library(geomtextpath)
 library(sbBrand)
 
 patches <- st_read("2026/Day4/data/karka_patches2.gpkg") |>
@@ -19,6 +20,9 @@ map_area <- patches |>
 map_box <- st_bbox(map_area)
 
 osm_file <- "2026/Day4/data/map.osm"
+
+main_road_width <- 4
+minor_road_width <- 1.5
 
 park_area <- st_read(osm_file, layer = "multipolygons", quiet = TRUE) |>
   filter(
@@ -35,18 +39,71 @@ roads <- osm_lines |>
   filter(
     !is.na(highway),
     !highway %in% c("path", "footway", "track", "bridleway", "steps")
+  ) |>
+  mutate(
+    road_width = if_else(
+      highway %in% c("secondary", "tertiary"),
+      main_road_width,
+      minor_road_width
+    )
   )
 
 streams <- osm_lines |>
   filter(waterway %in% c("stream", "river", "drain"))
 
+stream_label <- streams |>
+  filter(name == "Mākino Stream") |>
+  st_union() |>
+  st_cast("MULTILINESTRING") |>
+  st_line_merge() |>
+  st_as_sf() |>
+  mutate(label = "Mākino Stream")
+
+road_label <- roads |>
+  filter(name == "Kawakawa Road") |>
+  st_union() |>
+  st_cast("MULTILINESTRING") |>
+  st_line_merge() |>
+  st_as_sf() |>
+  mutate(label = "Kawakawa Rd")
+
+park_label <- park_area |>
+  filter(name == "Kitchener Park") |>
+  st_union() |>
+  st_point_on_surface() |>
+  st_as_sf() |>
+  mutate(label = "Awahuri Forest Park")
+
+patch_polys <- st_cast(patches, "POLYGON")
+
+target_xy <- patch_polys |>
+  slice_max(as.numeric(st_area(patch_polys)), n = 1) |>
+  st_point_on_surface() |>
+  st_coordinates()
+
+park_xy <- st_coordinates(park_label)
+
+label_offset <- 70
+
+direction <- (target_xy - park_xy) / sqrt(sum((target_xy - park_xy)^2))
+
+patch_note <- tibble(
+  x = target_xy[1],
+  y = target_xy[2],
+  x_text = target_xy[1] + label_offset * direction[1],
+  y_text = target_xy[2] + label_offset * direction[2],
+  label = "Tall reed<br>(<i>Phragmites karka</i>)"
+)
+
 spread_graphic <- image_read("2026/Day4/images/p_karka_plant_only.png") |>
   image_ggplot()
 
-systemfonts::require_font("Lato")
+#systemfonts::require_font("Avenir")
 systemfonts::require_font("Baloo 2")
+systemfonts::require_font("Nunito Sans")
+font <- "Nunito Sans"
 
-font <- "Lato"
+#font <- "Avenir"
 brand_font <- "Baloo 2"
 
 bg_col <- "#F5F5F5"
@@ -56,8 +113,19 @@ land_col <- "#F0EFEC"
 park_col <- "#DDE6D8"
 road_col <- "#FFFFFF"
 stream_col <- "#8FBBE0"
+stream_label_col <- "#4A86B5"
+label_col <- "#545454"
+label_pt <- 10
 
-plot_title <- "<i>Phragmites karka</i> has spread from Makino Stream and now surrounds Awahuri Forest Park"
+plot_title <- "Where tall reed clusters in Awahuri Forest Park"
+
+subtitle <- paste(
+  "<i>Phragmites karka</i> grows in dense clusters along Makino Stream",
+  "and the park's wet northern edge. It spreads by surface runners,",
+  "so a single plant becomes a thick stand up to 4 m tall."
+)
+
+subtitle_pt <- 10
 
 social_caption <- sb_social_caption(
   data_source = "OpenStreetMap contributors"
@@ -75,12 +143,57 @@ gg_record(
 
 karka_map <- ggplot() +
   geom_sf(data = park_area, fill = park_col, colour = NA) +
-  geom_sf(data = roads, colour = road_col, linewidth = 1) +
+  geom_sf(
+    data = roads,
+    mapping = aes(linewidth = road_width),
+    colour = road_col,
+    lineend = "round"
+  ) +
+  scale_linewidth_identity() +
   geom_sf(data = streams, colour = stream_col, linewidth = 0.8) +
   geom_sf(
     data = patches,
     fill = patch_col,
     colour = NA
+  ) +
+  geom_textsf(
+    data = road_label,
+    mapping = aes(label = label),
+    family = font,
+    colour = label_col,
+    size = label_pt / .pt,
+    linecolour = NA
+  ) +
+  geom_textsf(
+    data = stream_label,
+    mapping = aes(label = label),
+    family = font,
+    colour = stream_label_col,
+    size = label_pt / .pt,
+    vjust = -0.5,
+    linecolour = NA
+  ) +
+  geom_sf_text(
+    data = park_label,
+    mapping = aes(label = label),
+    family = font,
+    colour = label_col,
+    size = label_pt / .pt
+  ) +
+  geom_segment(
+    data = patch_note,
+    mapping = aes(x = x, y = y, xend = x_text, yend = y_text),
+    colour = label_col,
+    linewidth = 0.3
+  ) +
+  geom_richtext(
+    data = patch_note,
+    mapping = aes(x = x_text, y = y_text, label = label),
+    family = font,
+    colour = label_col,
+    size = label_pt / .pt,
+    fill = NA,
+    label.colour = NA
   ) +
   coord_sf(
     xlim = c(map_box["xmin"], map_box["xmax"]),
@@ -94,9 +207,26 @@ karka_map <- ggplot() +
 
 karka_map
 
-karka_composite <- karka_map /
-  spread_graphic +
-  plot_layout(heights = c(3, 1)) +
+subtitle_panel <- ggplot() +
+  geom_textbox(
+    data = tibble(x = 0, y = 1, label = subtitle),
+    mapping = aes(x = x, y = y, label = label),
+    family = font,
+    colour = text_col,
+    size = subtitle_pt / .pt,
+    width = unit(1, "npc"),
+    box.colour = NA,
+    fill = NA,
+    hjust = 0,
+    vjust = 1
+  ) +
+  scale_x_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  theme_void()
+
+header <- wrap_plots(subtitle_panel, spread_graphic, widths = c(3, 2))
+
+karka_composite <- wrap_plots(header, karka_map, ncol = 1, heights = c(1, 3)) +
   plot_annotation(
     title = plot_title,
     caption = social_caption,
@@ -117,7 +247,7 @@ karka_composite <- karka_map /
   )
 
 karka_composite
-
+record_polaroid()
 gg_stop_recording()
 
 ggsave(
