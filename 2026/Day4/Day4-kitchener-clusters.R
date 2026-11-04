@@ -4,17 +4,12 @@ library(ggtext)
 library(glue)
 library(systemfonts)
 library(ragg)
-library(osmdata)
 library(magick)
 library(patchwork)
 library(sbBrand)
 
 patches <- st_read("2026/Day4/data/karka_patches2.gpkg") |>
   st_transform(2193)
-
-n_clusters <- patches |>
-  st_cast("POLYGON") |>
-  nrow()
 
 map_area <- patches |>
   st_bbox() |>
@@ -23,31 +18,29 @@ map_area <- patches |>
 
 map_box <- st_bbox(map_area)
 
-bbox_ll <- map_area |>
-  st_transform(4326) |>
-  st_bbox()
+osm_file <- "2026/Day4/data/map.osm"
 
-osm_park <- opq(bbox = bbox_ll) |>
-  add_osm_feature(key = "leisure", value = c("park", "nature_reserve")) |>
-  osmdata_sf()
-
-osm_roads <- opq(bbox = bbox_ll) |>
-  add_osm_feature(key = "highway") |>
-  osmdata_sf()
-
-osm_water <- opq(bbox = bbox_ll) |>
-  add_osm_feature(key = "waterway", value = c("stream", "river", "drain")) |>
-  osmdata_sf()
-
-park_area <- st_transform(osm_park$osm_polygons, 2193)
-
-roads <- osm_roads$osm_lines |>
-  filter(!highway %in% c("path", "footway", "track", "bridleway", "steps")) |>
+park_area <- st_read(osm_file, layer = "multipolygons", quiet = TRUE) |>
+  filter(
+    landuse == "forest" |
+      natural == "wood" |
+      leisure %in% c("park", "nature_reserve")
+  ) |>
   st_transform(2193)
 
-streams <- st_transform(osm_water$osm_lines, 2193)
+osm_lines <- st_read(osm_file, layer = "lines", quiet = TRUE) |>
+  st_transform(2193)
 
-spread_graphic <- image_read("2026/Day4/data/karka_spread.png") |>
+roads <- osm_lines |>
+  filter(
+    !is.na(highway),
+    !highway %in% c("path", "footway", "track", "bridleway", "steps")
+  )
+
+streams <- osm_lines |>
+  filter(waterway %in% c("stream", "river", "drain"))
+
+spread_graphic <- image_read("2026/Day4/images/p_karka_plant_only.png") |>
   image_ggplot()
 
 systemfonts::require_font("Lato")
@@ -64,9 +57,7 @@ park_col <- "#DDE6D8"
 road_col <- "#FFFFFF"
 stream_col <- "#8FBBE0"
 
-plot_title <- glue(
-  "<i>P. karka</i> has spread into {n_clusters} separate clusters across Kitchener Park"
-)
+plot_title <- "<i>Phragmites karka</i> has spread from Makino Stream and now surrounds Awahuri Forest Park"
 
 social_caption <- sb_social_caption(
   data_source = "OpenStreetMap contributors"
