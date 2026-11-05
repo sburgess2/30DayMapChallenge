@@ -87,8 +87,9 @@ plot_title <- "Where tall reed clusters in Awahuri Forest Park"
 
 subtitle <- paste(
   "<i>Phragmites karka</i> grows in dense clusters along Makino Stream",
-  "and has spread into Awahuri Forest Park. It spreads by surface runners,",
-  "so a single plant becomes a thick stand up to 4 m tall."
+  "and has spread into Awahuri Forest Park. This weed can spread from tiny fragments.",
+  "Once it takes hold it creates a massive underground root system",
+  "and a thick wall of reeds."
 )
 
 subtitle_pt <- 10
@@ -132,31 +133,21 @@ karka_map <- ggplot() +
   ) +
   annotate(
     "text",
-    x = I(0.75),
-    y = I(0.75),
+    x = I(0.87),
+    y = I(0.85),
     label = "Mākino Stream",
     family = font,
-    colour = stream_label_col,
+    colour = label_col,
     size = label_pt / .pt
   ) +
   annotate(
     "text",
-    x = I(0.5),
+    x = I(0.55),
     y = I(0.4),
     label = "Awahuri Forest Park",
     family = font,
     colour = label_col,
     size = park_pt / .pt
-  ) +
-  annotate(
-    "segment",
-    x = I(0.56),
-    y = I(0.85),
-    xend = I(0.64),
-    yend = I(0.76),
-    linewidth = 0.3,
-    colour = label_col,
-    arrow = arrow(length = unit(1.5, "mm"), type = "closed")
   ) +
   geom_richtext(
     data = tibble(label = "Tall reed<br>(<i>Phragmites karka</i>)"),
@@ -179,6 +170,43 @@ karka_map <- ggplot() +
 
 karka_map
 
+map_curve <- ggplot() +
+  annotate(
+    "curve",
+    x = 0.46,
+    y = 0.88,
+    xend = 0.41,
+    yend = 0.81,
+    curvature = 0.3,
+    linewidth = 0.3,
+    colour = label_col,
+    arrow = arrow(length = unit(1.5, "mm"), type = "closed")
+  ) +
+  scale_x_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  theme_void()
+
+karka_map_curve <- karka_map +
+  inset_element(
+    map_curve,
+    left = 0,
+    bottom = 0,
+    right = 1,
+    top = 1,
+    align_to = "panel"
+  ) +
+  inset_element(
+    spread_graphic,
+    left = 0.4,
+    bottom = 0.93,
+    right = 0.7,
+    top = 1.1,
+    align_to = "panel",
+    clip = FALSE
+  )
+
+karka_map_curve
+
 subtitle_panel <- ggplot() +
   geom_textbox(
     data = tibble(x = 0, y = 1, label = subtitle),
@@ -186,7 +214,7 @@ subtitle_panel <- ggplot() +
     family = font,
     colour = text_col,
     size = subtitle_pt / .pt,
-    width = unit(1, "npc"),
+    width = unit(0.6, "npc"),
     box.colour = NA,
     fill = NA,
     hjust = 0,
@@ -196,13 +224,13 @@ subtitle_panel <- ggplot() +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
   theme_void()
 
-header <- wrap_plots(subtitle_panel, spread_graphic, widths = c(3, 1.7))
+header <- subtitle_panel
 
 karka_composite <- wrap_plots(
   header,
-  karka_map,
+  karka_map_curve,
   ncol = 1,
-  heights = c(0.65, 3)
+  heights = c(0.3, 3)
 ) +
   plot_annotation(
     title = plot_title,
