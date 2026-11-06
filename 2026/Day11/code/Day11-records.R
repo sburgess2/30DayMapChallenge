@@ -1,14 +1,9 @@
 #Data downloaded using exportify
 
-# Setup and data prep, then Visual 1: world map with plain records
 library(tidyverse)
-library(sf)
-library(rnaturalearth)
 library(tidygeocoder)
 library(packcircles)
 
-equal_earth <- "ESRI:54035"
-size_scale <- 380000
 
 #function to clean artist names
 clean_name <- function(x) {
@@ -17,23 +12,18 @@ clean_name <- function(x) {
     str_squish() #trim spaces at start and end
 }
 
-world <- ne_countries(scale = "medium", returnclass = "sf") |>
-  filter(name != "Antarctica") |>
-  st_transform(equal_earth)
-
 song_files <- c(
   "2026/Day11/data/Sara.csv",
   "2026/Day11/data/sara80s.csv",
   "2026/Day11/data/saraeighties.csv"
 )
 
-songs <- song_files |>
-  map(\(f) read_csv(f, col_types = cols(.default = "c"))) |>
+songs <- map(song_files, read_csv) |>
   list_rbind() |>
   distinct(`Track URI`, .keep_all = TRUE)
 
 songs_wide <- songs |>
-  select(`Track URI`, artist = `Artist Name(s)`) |>
+  select(`Track Name`, `Track URI`,artist = `Artist Name(s)`) |>
   separate_wider_delim(
     artist,
     delim = ";",
@@ -53,13 +43,15 @@ artists <- read_csv(
     artist_key = clean_name(Artist)
   )
 
-song_counts <- songs_wide |>
+song_long <- songs_wide |>
   pivot_longer(
     starts_with("artist_"),
     names_to = NULL,
     values_to = "artist",
     values_drop_na = TRUE
-  ) |>
+  ) 
+
+|>
   mutate(artist_key = clean_name(artist)) |>
   filter(artist_key %in% artists$artist_key) |>
   distinct(`Track URI`, artist_key) |>
