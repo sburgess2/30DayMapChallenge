@@ -1,3 +1,6 @@
+#Data downloaded using exportify
+
+# Setup and data prep, then Visual 1: world map with plain records
 library(tidyverse)
 library(sf)
 library(rnaturalearth)
@@ -88,6 +91,7 @@ records <- artists |>
   arrange(desc(songs)) |>
   mutate(rank = row_number(), radius = sqrt(songs) * size_scale)
 
+# Visual 1: world map, plain records (day11_records.png)
 piece_spec <- bind_rows(
   tibble(frac = 1, fill = "#1b1b1b", line = "#000000", lw = 0.1),
   tibble(
@@ -139,6 +143,8 @@ ggsave(
 )
 
 
+# Visual 2: world map, genre-coloured records with names (day11_records_genre.png)
+# Setup is repeated here; the data prep below is reused by Visuals 3 to 9
 library(tidyverse)
 library(sf)
 library(rnaturalearth)
@@ -441,6 +447,7 @@ ggsave(
   create.dir = TRUE
 )
 
+# Circle packing layout, no map (Visuals 3 and 4)
 pack <- circleProgressiveLayout(records$songs, sizetype = "area")
 
 packed <- records |>
@@ -537,6 +544,7 @@ plot_packed <- function(shape_fn) {
     )
 }
 
+# Visual 3: circle packing, semibreves (day11_semibreve_packing.png)
 semibreve_plot <- plot_packed(semibreve_shape)
 semibreve_plot
 
@@ -550,6 +558,7 @@ ggsave(
   create.dir = TRUE
 )
 
+# Visual 4: circle packing, crotchets (day11_crotchet_packing.png)
 crotchet_plot <- plot_packed(crotchet_shape)
 crotchet_plot
 
@@ -563,6 +572,7 @@ ggsave(
   create.dir = TRUE
 )
 
+# Treble and bass staves, notes in order of song count (Visuals 5 and 6)
 stave_gap <- 9
 
 staff <- records |>
@@ -643,6 +653,7 @@ plot_staff <- function(shape_fn, lift) {
     )
 }
 
+# Visual 5: two staves, semibreves (day11_semibreve_staff.png)
 semibreve_staff_plot <- plot_staff(semibreve_shape, \(r) 0 * r)
 semibreve_staff_plot
 
@@ -656,6 +667,7 @@ ggsave(
   create.dir = TRUE
 )
 
+# Visual 6: two staves, crotchets (day11_crotchet_staff.png)
 crotchet_staff_plot <- plot_staff(crotchet_shape, \(r) 0.4 * r)
 crotchet_staff_plot
 
@@ -669,6 +681,7 @@ ggsave(
   create.dir = TRUE
 )
 
+# Longitude as time, latitude as pitch (Visuals 7 and 8)
 nudge_x <- function(df, gap = 1.04, iterations = 500) {
   x <- df$x
   y <- df$y
@@ -751,7 +764,12 @@ plot_pitch <- function(shape_fn, lift) {
     st_as_sf()
 
   ggplot() +
-    geom_hline(yintercept = 0, colour = "grey80", linewidth = 0.3, linetype = "dashed") +
+    geom_hline(
+      yintercept = 0,
+      colour = "grey80",
+      linewidth = 0.3,
+      linetype = "dashed"
+    ) +
     geom_segment(
       data = pitch_lines,
       aes(x = x0, xend = x1, y = y, yend = y),
@@ -798,6 +816,7 @@ plot_pitch <- function(shape_fn, lift) {
     )
 }
 
+# Visual 7: longitude/latitude staff, semibreves (day11_semibreve_pitch.png)
 semibreve_pitch_plot <- plot_pitch(semibreve_shape, \(r) 0 * r)
 semibreve_pitch_plot
 
@@ -811,6 +830,7 @@ ggsave(
   create.dir = TRUE
 )
 
+# Visual 8: longitude/latitude staff, crotchets (day11_crotchet_pitch.png)
 crotchet_pitch_plot <- plot_pitch(crotchet_shape, \(r) 0.4 * r)
 crotchet_pitch_plot
 
@@ -824,6 +844,10 @@ ggsave(
   create.dir = TRUE
 )
 
+
+##Multi panel map
+#This is the one I like the least
+# Visual 9: three-panel map, Europe / US and Canada / NZ and Australia (day11_records_three_panel.png)
 panel_scale <- 140000
 
 region_limits <- function(box) {
@@ -904,7 +928,11 @@ panel_widths <- map_dbl(boxes, \(b) {
   unname(lims["xmax"] - lims["xmin"])
 })
 
-europe_panel <- region_panel(c("United Kingdom", "Sweden"), boxes$europe, "Europe")
+europe_panel <- region_panel(
+  c("United Kingdom", "Sweden"),
+  boxes$europe,
+  "Europe"
+)
 us_panel <- region_panel(c("USA", "Canada"), boxes$us_canada, "US and Canada")
 oceania_panel <- region_panel(
   c("New Zealand", "Australia"),
