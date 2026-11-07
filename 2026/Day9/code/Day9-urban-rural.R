@@ -179,16 +179,13 @@ pn_extent <- pn_points_nztm |>
   st_as_sfc() |> # turn that rectangle into a shape
   st_buffer(1000) # grow the shape outwards by 1500 m (1.5 km)
 
-pn_extent_4326 <- st_transform(pn_extent, 4326) # reproject to lat/long, which the OSM file uses
-
 pn_bbox <- st_bbox(pn_extent)
 
-pn_centre <- c(
-  (pn_bbox[["xmin"]] + pn_bbox[["xmax"]]) / 2,
-  (pn_bbox[["ymin"]] + pn_bbox[["ymax"]]) / 2
-)
+pn_coords <- st_coordinates(pn_points_nztm)
 
-pn_radius <- min(
+pn_centre <- c(median(pn_coords[, "X"]), median(pn_coords[, "Y"]))
+
+pn_radius <- 0.75 * min(
   pn_bbox[["xmax"]] - pn_bbox[["xmin"]],
   pn_bbox[["ymax"]] - pn_bbox[["ymin"]]
 ) / 2
@@ -197,6 +194,11 @@ pn_circle <- st_point(pn_centre) |>
   st_sfc(crs = 2193) |>
   st_buffer(pn_radius, nQuadSegs = 100) |>
   st_sf()
+
+pn_extent_4326 <- pn_circle |>
+  st_bbox() |>
+  st_as_sfc() |>
+  st_transform(4326)
 
 pn_roads <- oe_read(
   osm_pbf,
@@ -224,6 +226,7 @@ pn_rivers <- st_intersection(pn_rivers, pn_circle)
 pn_points <- st_filter(pn_points_nztm, pn_circle)
 
 p_pn <- ggplot() +
+  geom_sf(data = pn_circle, fill = bg_col, color = NA) +
   geom_sf(data = pn_rivers, color = river_col, linewidth = 0.3) +
   geom_sf(
     data = filter(pn_roads, !highway %in% major_roads),
@@ -258,9 +261,11 @@ p_pn <- ggplot() +
     linewidth = 0.6
   ) +
   coord_sf(expand = FALSE) +
+  labs(title = "Bike crashes in Palmerston North cluster around the city centre") +
   theme_void() +
   theme(
-    plot.background = element_rect(fill = bg_col, color = NA),
+    plot.background = element_rect(fill = "white", color = NA),
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5, margin = margin(b = 10)),
     plot.margin = margin(15, 15, 15, 15)
   )
 
