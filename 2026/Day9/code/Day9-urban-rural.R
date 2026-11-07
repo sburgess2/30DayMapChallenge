@@ -6,8 +6,7 @@ library(tidyverse)
 library(sf)
 library(terra)
 library(tidyterra)
-library(maptiles)
-library(rnaturalearth)
+library(osmextract)
 
 ###############################################################################
 ## Settings                                                                  ##
@@ -19,15 +18,16 @@ tile_zoom <- 10
 
 #Note to self - try a CARTO map, but need API key
 
-esri_dark <- create_provider(
-  name = "esri_dark_gray",
-  url = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-  citation = "Tiles © Esri — Esri, DeLorme, NAVTEQ"
-)
-
-bg_col <- "#0b0b0b"
-bike_col <- "#FFF9A6"
+bg_col <- "#e5e5e5"
+bike_col <- "#d7301f"
 bar_col <- "#3d3d3d"
+road_major_col <- "#4a4a4a"
+road_minor_col <- "#a8a8a8"
+major_roads <- c("motorway", "trunk", "primary")
+river_col <- "#8ec3e6"
+fatal_col <- "#d7301f"
+other_col <- "#FFF9A6"
+
 urban_col <- "#FFF9A6"
 open_col <- "#6b6b6b"
 
@@ -165,130 +165,97 @@ fatal_by_year
 
 
 ###############################################################################
-## Region boundary                                                          ##
-###############################################################################
-
-nz_regions <- ne_states(country = "New Zealand", returnclass = "sf")
-
-region_boundary <- nz_regions |>
-  filter(str_detect(name, "Manawat|Wanganui|Whanganui"))
-
-stopifnot(nrow(region_boundary) > 0)
-
-region_boundary <- region_boundary |>
-  st_union() |>
-  st_make_valid() |>
-  st_sf()
-
-###############################################################################
-## Basemap tiles                                                             ##
-###############################################################################
-
-dir.create("2026/Day9/data/tiles", showWarnings = FALSE)
-
-#This gets an error look at a tutorial on how to use maps.
-region_tiles <- get_tiles(
-  st_buffer(st_transform(region_boundary, 2193), 5000),
-  provider = esri_dark,
-  zoom = tile_zoom,
-  crop = TRUE,
-  cachedir = "2026/Day9/data/tiles"
-)
-
-#Try https://github.com/nrennie/tidytuesday/blob/main/2025/2025-12-16/20251216.R
-
-tile_crs <- st_crs(crs(region_tiles))
-
-region_tiles <- mask(
-  region_tiles,
-  vect(st_transform(region_boundary, tile_crs))
-)
-
-###############################################################################
-## Crash points                                                              ##
-###############################################################################
-
-bike_points <- bike_crashes |>
-  filter(!is.na(X), !is.na(Y)) |>
-  st_as_sf(coords = c("X", "Y"), crs = 2193) |>
-  st_transform(tile_crs)
-
-region_outline <- st_transform(region_boundary, tile_crs)
-
-###############################################################################
-## Plot                                                                      ##
-###############################################################################
-
-p_map <- ggplot() +
-  geom_spatraster_rgb(data = region_tiles, maxcell = Inf) +
-  geom_sf(
-    data = region_outline,
-    fill = NA,
-    color = "#8a8a8a",
-    linewidth = 0.3
-  ) +
-  geom_sf(
-    data = bike_points,
-    color = bike_col,
-    size = 0.9,
-    alpha = 0.85,
-    shape = 16
-  ) +
-  coord_sf(expand = FALSE) +
-  theme_void() +
-  theme(
-    plot.background = element_rect(fill = bg_col, color = NA),
-    plot.margin = margin(15, 15, 15, 15)
-  )
-
-p_map
-
-###############################################################################
-## Save png                                                                  ##
-###############################################################################
-
-dir.create("2026/Day9/output", showWarnings = FALSE)
-
-ggsave(
-  filename = "2026/Day9/output/manawatu_whanganui_bike_crashes.png",
-  plot = p_map,
-  width = 8,
-  height = 9,
-  dpi = 300,
-  device = ragg::agg_png
-)
-
-###############################################################################
 ## Palmerston North map                                                      ##
 ###############################################################################
 
+osm_pbf <- "2026/Day9/data/new-zealand-261105.osm.pbf"
+
 pn_points_nztm <- bike_crashes |>
   filter(tlaName == "Palmerston North City", !is.na(X), !is.na(Y)) |>
-  st_as_sf(coords = c("X", "Y"), crs = 2193)
+  st_as_sf(coords = c("X", "Y"), crs = 2193) # turn X/Y columns into points in NZTM (metres)
 
 pn_extent <- pn_points_nztm |>
-  st_bbox() |>
-  st_as_sfc() |>
-  st_buffer(1500)
+  st_bbox() |> # find the rectangle that contains all the points
+  st_as_sfc() |> # turn that rectangle into a shape
+  st_buffer(1000) # grow the shape outwards by 1500 m (1.5 km)
 
-pn_tiles <- get_tiles(
-  pn_extent,
-  provider = esri_dark,
-  zoom = 13,
-  crop = TRUE,
-  cachedir = "2026/Day9/data/tiles"
+pn_extent_4326 <- st_transform(pn_extent, 4326) # reproject to lat/long, which the OSM file uses
+
+pn_bbox <- st_bbox(pn_extent)
+
+pn_centre <- c(
+  (pn_bbox[["xmin"]] + pn_bbox[["xmax"]]) / 2,
+  (pn_bbox[["ymin"]] + pn_bbox[["ymax"]]) / 2
 )
 
-pn_points <- st_transform(pn_points_nztm, st_crs(crs(pn_tiles)))
+pn_radius <- min(
+  pn_bbox[["xmax"]] - pn_bbox[["xmin"]],
+  pn_bbox[["ymax"]] - pn_bbox[["ymin"]]
+) / 2
+
+pn_circle <- st_point(pn_centre) |>
+  st_sfc(crs = 2193) |>
+  st_buffer(pn_radius, nQuadSegs = 100) |>
+  st_sf()
+
+pn_roads <- oe_read(
+  osm_pbf,
+  layer = "lines",
+  query = "SELECT highway, geometry FROM lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential','unclassified')",
+  boundary = pn_extent_4326,
+  boundary_type = "clipsrc"
+) |>
+  st_transform(2193) # reproject back to NZTM to match the crash points
+
+pn_rivers <- oe_read(
+  osm_pbf,
+  layer = "lines",
+  extra_tags = "waterway",
+  query = "SELECT waterway, geometry FROM lines WHERE waterway = 'river'",
+  boundary = pn_extent_4326,
+  boundary_type = "clipsrc"
+) |>
+  st_transform(2193) # reproject back to NZTM to match the crash points
+
+pn_roads <- st_intersection(pn_roads, pn_circle)
+
+pn_rivers <- st_intersection(pn_rivers, pn_circle)
+
+pn_points <- st_filter(pn_points_nztm, pn_circle)
 
 p_pn <- ggplot() +
-  geom_spatraster_rgb(data = pn_tiles, maxcell = Inf) +
+  geom_sf(data = pn_rivers, color = river_col, linewidth = 0.3) +
   geom_sf(
-    data = pn_points,
-    color = bike_col,
-    size = 1.6,
-    alpha = 0.85,
-    shape = 16
+    data = filter(pn_roads, !highway %in% major_roads),
+    color = road_minor_col,
+    linewidth = 0.25
+  ) +
+  geom_sf(
+    data = filter(pn_roads, highway %in% major_roads),
+    color = road_major_col,
+    linewidth = 0.35
+  ) +
+  geom_sf(
+    data = filter(pn_points, crashSeverity != "Fatal Crash"),
+    color = other_col,
+    fill = other_col,
+    size = 1.8,
+    stroke = 0.5,
+    shape = 21
+  ) +
+  geom_sf(
+    data = filter(pn_points, crashSeverity == "Fatal Crash"),
+    color = fatal_col,
+    fill = fatal_col,
+    size = 1.8,
+    stroke = 0.5,
+    shape = 21
+  ) +
+  geom_sf(
+    data = pn_circle,
+    fill = NA,
+    color = road_major_col,
+    linewidth = 0.6
   ) +
   coord_sf(expand = FALSE) +
   theme_void() +
