@@ -262,7 +262,7 @@ top_locations <- bike_crashes |>
 
 n_fatal <- sum(pn_points$crashSeverity == "Fatal Crash")
 
-plot_title <- "Palmerston North’s top 3 bike crash sites are all intersections in the central city"
+plot_title <- "Palmerston North’s top 3 bike crash sites are all intersections<br>in the central city"
 subtitle <- paste0(
   nrow(bike_crashes),
   " crashes involving a bike were reported between ",
@@ -353,8 +353,8 @@ fatal_note <- tibble(
     sub_text
   ),
   len = sqrt((tx - px)^2 + (ty - py)^2),
-  sx = px + (tx - px) / len * 0.07 * pn_radius,
-  sy = py + (ty - py) / len * 0.07 * pn_radius
+  sx = px + (tx - px) / len * 0.02 * pn_radius,
+  sy = py + (ty - py) / len * 0.02 * pn_radius
 )
 
 square_bbox <- st_bbox(pn_square)
@@ -456,7 +456,8 @@ p_pn <- ggplot() +
     plot.caption.position = "plot",
     plot.title = element_textbox_simple(
       face = "bold",
-      size = 16
+      size = 16,
+      margin = margin(b = 8)
     ),
     plot.subtitle.position = "plot",
     plot.subtitle = element_textbox_simple(size = 12),
@@ -465,7 +466,7 @@ p_pn <- ggplot() +
   )
 
 p_pn
-
+record_polaroid()
 ggsave(
   filename = "2026/Day9/output/palmerston_north_bike_crashes.png",
   plot = p_pn,
