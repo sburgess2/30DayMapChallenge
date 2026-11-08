@@ -7,6 +7,8 @@ library(sf)
 library(terra)
 library(tidyterra)
 library(osmextract)
+library(ggtext)
+library(sbBrand)
 
 ###############################################################################
 ## Settings                                                                  ##
@@ -16,10 +18,11 @@ first_year <- 2020
 last_year <- 2025
 tile_zoom <- 10
 
-#Note to self - try a CARTO map, but need API key
-
-label_pt <- 8
 crash_size <- 3
+
+systemfonts::require_font("Barlow")
+
+font <- "Barlow"
 
 bg_col <- "#f5f5f5"
 bike_col <- "#d7301f"
@@ -27,7 +30,9 @@ bar_col <- "#3d3d3d"
 road_major_col <- "#4a4a4a"
 road_minor_col <- "#a8a8a8"
 major_roads <- c("motorway", "trunk", "primary")
-river_col <- "#8ec3e6"
+
+river_col <- "#b9dcf2"
+hotspot_col <- "#E08A00"
 fatal_col <- "#E02800FF"
 other_col <- "#F8C800FF"
 
@@ -198,12 +203,12 @@ pn_radius <- 0.75 *
   ) /
   2
 
-pn_circle <- st_point(pn_centre) |>
+pn_square <- st_point(pn_centre) |>
   st_sfc(crs = 2193) |>
-  st_buffer(pn_radius, nQuadSegs = 100) |>
+  st_buffer(pn_radius, endCapStyle = "SQUARE") |>
   st_sf()
 
-pn_extent_4326 <- pn_circle |>
+pn_extent_4326 <- pn_square |>
   st_bbox() |>
   st_as_sfc() |>
   st_transform(4326)
@@ -228,12 +233,12 @@ pn_rivers <- oe_read(
 ) |>
   st_transform(2193) # reproject back to NZTM to match the crash points
 
-pn_roads <- st_intersection(pn_roads, pn_circle)
+pn_roads <- st_intersection(pn_roads, pn_square)
 
-pn_rivers <- st_intersection(pn_rivers, pn_circle)
+pn_rivers <- st_intersection(pn_rivers, pn_square)
 
 
-pn_points <- st_filter(pn_points_nztm, pn_circle)
+pn_points <- st_filter(pn_points_nztm, pn_square)
 
 top_locations <- bike_crashes |>
   filter(
@@ -257,24 +262,116 @@ top_locations <- bike_crashes |>
 
 n_fatal <- sum(pn_points$crashSeverity == "Fatal Crash")
 
-n_other <- nrow(pn_points) - n_fatal
+plot_title <- "Palmerston North’s top 3 bike crash sites are all intersections in the central city"
+subtitle <- paste0(
+  nrow(bike_crashes),
+  " crashes involving a bike were reported between ",
+  first_year,
+  "-",
+  last_year,
+  ". Each dot represents one crash."
+)
+social_caption <- sb_social_caption(
+  data_source = "NZTA Crash Analysis System (CAS) | Basemap: OpenStreetMap contributors"
+)
 
-key_x <- pn_centre[1] - 0.5 * pn_radius
-
-key_y_other <- pn_centre[2] + 0.7 * pn_radius
-
-key_y_fatal <- pn_centre[2] + 0.6 * pn_radius
-
-key_other_label <- paste0("Other bike crash (", n_other, ")")
+hotspot_offsets <- tibble(
+  group = 1:2,
+  dx = c(-0.95, 0.25),
+  dy = c(-0.6, 0.85)
+)
 
 
-key_fatal_label <- paste0("Fatal crash (", n_fatal, ")")
+hotspots <- top_locations |>
+  filter(rank <= 3) |>
+  mutate(
+    group = c(1, 1, 2)[rank],
+    px = st_coordinates(geometry)[, "X"],
+    py = st_coordinates(geometry)[, "Y"],
+    name = location |>
+      str_to_title() |>
+      str_replace_all("\\bStreet\\b", "St") |>
+      str_replace_all("\\bAvenue\\b", "Ave") |>
+      str_replace_all("\\bRoad\\b", "Rd")
+  ) |>
+  st_drop_geometry() |>
+  summarise(
+    crashes = first(n),
+    n_places = n(),
+    px = mean(px),
+    py = mean(py),
+    heading = paste(name, collapse = " and "),
+    .by = group
+  ) |>
+  left_join(hotspot_offsets, by = "group") |>
+  mutate(
+    tx = pn_centre[1] + dx * pn_radius,
+    ty = pn_centre[2] + dy * pn_radius,
+    heading = str_wrap(heading, 24) |> str_replace_all("\n", "<br>"),
+    sub_text = if_else(
+      n_places > 1,
+      paste0(crashes, " crashes each, one block apart"),
+      paste0(crashes, " crashes")
+    ),
+    note = paste0(
+      "<b style='color:",
+      hotspot_col,
+      "; font-size:10pt'>",
+      heading,
+      "</b><br>",
+      sub_text
+    ),
+    ring_size = if_else(n_places > 1, 14, 9),
+    len = sqrt((tx - px)^2 + (ty - py)^2),
+    sx = px + (tx - px) / len * 0.07 * pn_radius,
+    sy = py + (ty - py) / len * 0.07 * pn_radius
+  )
 
-plot_title <- "Bike crashes in Palmerston North from 2020 - 2025"
+fatal_xy <- pn_points |>
+  filter(crashSeverity == "Fatal Crash") |>
+  st_union() |>
+  st_centroid() |>
+  st_coordinates()
+
+fatal_note <- tibble(
+  px = fatal_xy[1, "X"],
+  py = fatal_xy[1, "Y"],
+  tx = pn_centre[1] + 0.2 * pn_radius,
+  ty = pn_centre[2] - 0.75 * pn_radius,
+  heading = paste0(
+    n_fatal,
+    " fatal ",
+    if_else(n_fatal == 1, "crash", "crashes")
+  ),
+  sub_text = "Both crashes were on a 60 km/h peri-urban road",
+  note = paste0(
+    "<b style='color:",
+    str_sub(fatal_col, 1, 7),
+    "; font-size:10pt'>",
+    heading,
+    "</b><br>",
+    sub_text
+  ),
+  len = sqrt((tx - px)^2 + (ty - py)^2),
+  sx = px + (tx - px) / len * 0.07 * pn_radius,
+  sy = py + (ty - py) / len * 0.07 * pn_radius
+)
+
+square_bbox <- st_bbox(pn_square)
+
+library(camcorder)
+
+gg_record(
+  device = "png",
+  width = 8,
+  height = 9,
+  units = "in",
+  dpi = 300
+)
 
 p_pn <- ggplot() +
-  geom_sf(data = pn_circle, fill = bg_col, color = NA) +
-  geom_sf(data = pn_rivers, color = river_col, linewidth = 0.3) +
+  geom_sf(data = pn_square, fill = bg_col, color = NA) +
+  geom_sf(data = pn_rivers, color = river_col, linewidth = 1.2) +
   geom_sf(
     data = filter(pn_roads, !highway %in% major_roads),
     color = road_minor_col,
@@ -289,103 +386,81 @@ p_pn <- ggplot() +
     data = filter(pn_points, crashSeverity != "Fatal Crash"),
     color = other_col,
     fill = other_col,
-    size = crash_size,
-    stroke = 0.5,
+    size = 3,
+    #stroke = 0.5,
     shape = 21,
-    alpha = 0.7
+    alpha = 0.5
   ) +
   geom_sf(
     data = filter(pn_points, crashSeverity == "Fatal Crash"),
     color = fatal_col,
     fill = fatal_col,
-    size = crash_size,
+    size = 3,
     stroke = 0.5,
     shape = 21,
     alpha = 0.7
   ) +
-  geom_sf(
-    data = filter(top_locations, rank <= 3),
-    color = road_major_col,
+  geom_point(
+    data = hotspots,
+    aes(x = px, y = py, size = ring_size),
+    color = hotspot_col,
     fill = NA,
-    size = 9,
     shape = 21,
     stroke = 1
   ) +
-  geom_sf_label(
-    data = filter(top_locations, rank <= 3),
-    aes(label = paste0(location, "\n", n, " crashes")),
-    nudge_y = 0.18 * pn_radius,
-    size = label_pt / .pt,
-    fill = "white",
-    color = road_major_col,
-    label.size = 0.3
+  scale_size_identity() +
+  geom_segment(
+    data = hotspots,
+    aes(x = sx, y = sy, xend = tx, yend = ty),
+    color = hotspot_col,
+    linewidth = 0.4
   ) +
-  geom_sf(
-    data = pn_circle,
-    fill = NA,
-    color = road_major_col,
-    linewidth = 0.6
-  ) +
-  annotate(
-    "rect",
-    xmin = key_x - 0.05 * pn_radius,
-    xmax = key_x + 0.7 * pn_radius,
-    ymin = key_y_fatal - 0.07 * pn_radius,
-    ymax = key_y_other + 0.07 * pn_radius,
-    fill = bg_col,
-    alpha = 0.9
-  ) +
-  annotate(
-    "point",
-    x = key_x,
-    y = key_y_other,
-    color = other_col,
-    fill = other_col,
-    size = crash_size,
-    stroke = 0.5,
-    shape = 21,
-    alpha = 0.7
-  ) +
-  annotate(
-    "text",
-    x = key_x + 0.06 * pn_radius,
-    y = key_y_other,
-    label = key_other_label,
+  geom_richtext(
+    data = hotspots,
+    aes(x = tx, y = ty, label = note),
+    color = "#2b2b2b",
+    fill = "#fcfcfc",
+    label.color = NA,
+    family = font,
+    size = 8 / .pt,
     hjust = 0,
-    size = label_pt / .pt,
-    color = road_major_col
+    vjust = 1
   ) +
-  annotate(
-    "point",
-    x = key_x,
-    y = key_y_fatal,
+  geom_segment(
+    data = fatal_note,
+    aes(x = sx, y = sy, xend = tx, yend = ty),
     color = fatal_col,
-    fill = fatal_col,
-    size = crash_size,
-    stroke = 0.5,
-    shape = 21,
-    alpha = 0.7
+    linewidth = 0.4
   ) +
-  annotate(
-    "text",
-    x = key_x + 0.06 * pn_radius,
-    y = key_y_fatal,
-    label = key_fatal_label,
+  geom_richtext(
+    data = fatal_note,
+    aes(x = tx, y = ty, label = note),
+    color = "#2b2b2b",
+    fill = "#fcfcfc",
+    label.color = NA,
+    family = font,
+    size = 8 / .pt,
     hjust = 0,
-    size = label_pt / .pt,
-    color = road_major_col
+    vjust = 1
   ) +
-  coord_sf(expand = FALSE) +
-  labs(title = plot_title) +
-  theme_void() +
+  coord_sf(
+    xlim = c(square_bbox[["xmin"]], square_bbox[["xmax"]]),
+    ylim = c(square_bbox[["ymin"]], square_bbox[["ymax"]]),
+    expand = FALSE
+  ) +
+  labs(title = plot_title, subtitle = subtitle, caption = social_caption) +
+  theme_void(base_family = font) +
   theme(
     plot.background = element_rect(fill = "white", color = NA),
-    plot.title = element_text(
+    plot.title.position = "plot",
+    plot.caption.position = "plot",
+    plot.title = element_textbox_simple(
       face = "bold",
-      size = 16,
-      hjust = 0.5,
-      margin = margin(b = 10)
+      size = 16
     ),
+    plot.subtitle.position = "plot",
+    plot.subtitle = element_textbox_simple(size = 12),
+    plot.caption = element_textbox_simple(hjust = 0, margin = margin(t = 10)),
     plot.margin = margin(15, 15, 15, 15)
   )
 
@@ -394,106 +469,6 @@ p_pn
 ggsave(
   filename = "2026/Day9/output/palmerston_north_bike_crashes.png",
   plot = p_pn,
-  width = 8,
-  height = 8,
-  dpi = 300,
-  device = ragg::agg_png
-)
-
-###############################################################################
-## Top ten crash locations                                                   ##
-###############################################################################
-
-top_locations
-
-top_title <- paste0(
-  nrow(top_locations),
-  " locations account for ",
-  sum(top_locations$n),
-  " of the ",
-  nrow(bike_crashes),
-  " bike crashes in Palmerston North"
-)
-
-top_caption <- paste(top_locations$label, collapse = "\n")
-
-p_top <- ggplot() +
-  geom_sf(data = pn_circle, fill = bg_col, color = NA) +
-  geom_sf(data = pn_rivers, color = river_col, linewidth = 0.3) +
-  geom_sf(
-    data = filter(pn_roads, !highway %in% major_roads),
-    color = road_minor_col,
-    linewidth = 0.25
-  ) +
-  geom_sf(
-    data = filter(pn_roads, highway %in% major_roads),
-    color = road_major_col,
-    linewidth = 0.35
-  ) +
-  geom_sf(
-    data = pn_circle,
-    fill = NA,
-    color = road_major_col,
-    linewidth = 0.6
-  ) +
-  geom_sf(
-    data = top_locations,
-    aes(size = n),
-    color = fatal_col,
-    fill = fatal_col,
-    shape = 21,
-    alpha = 0.75
-  ) +
-  geom_sf_text(
-    data = top_locations,
-    aes(label = rank),
-    color = "white",
-    size = label_pt / .pt,
-    fontface = "bold"
-  ) +
-  geom_sf(
-    data = filter(top_locations, rank <= 3),
-    color = road_major_col,
-    fill = NA,
-    size = 14,
-    shape = 21,
-    stroke = 1
-  ) +
-  geom_sf_label(
-    data = filter(top_locations, rank <= 3),
-    aes(label = paste0(location, "\n", n, " crashes")),
-    nudge_y = 0.18 * pn_radius,
-    size = label_pt / .pt,
-    fill = "white",
-    color = road_major_col,
-    label.size = 0.3
-  ) +
-  scale_size_continuous(range = c(5, 11), guide = "none") +
-  coord_sf(expand = FALSE) +
-  labs(title = top_title, caption = top_caption) +
-  theme_void() +
-  theme(
-    plot.background = element_rect(fill = "white", color = NA),
-    plot.title = element_text(
-      face = "bold",
-      size = 16,
-      hjust = 0.5,
-      margin = margin(b = 10)
-    ),
-    plot.caption = element_text(
-      hjust = 0,
-      size = 10,
-      lineheight = 1.2,
-      margin = margin(t = 10)
-    ),
-    plot.margin = margin(15, 15, 15, 15)
-  )
-
-p_top
-
-ggsave(
-  filename = "2026/Day9/output/palmerston_north_top_ten_locations.png",
-  plot = p_top,
   width = 8,
   height = 9,
   dpi = 300,
