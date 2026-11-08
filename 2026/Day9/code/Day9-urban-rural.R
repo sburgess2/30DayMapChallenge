@@ -18,15 +18,18 @@ tile_zoom <- 10
 
 #Note to self - try a CARTO map, but need API key
 
-bg_col <- "#e5e5e5"
+label_pt <- 8
+crash_size <- 3
+
+bg_col <- "#f5f5f5"
 bike_col <- "#d7301f"
 bar_col <- "#3d3d3d"
 road_major_col <- "#4a4a4a"
 road_minor_col <- "#a8a8a8"
 major_roads <- c("motorway", "trunk", "primary")
 river_col <- "#8ec3e6"
-fatal_col <- "#d7301f"
-other_col <- "#FFF9A6"
+fatal_col <- "#E02800FF"
+other_col <- "#F8C800FF"
 
 urban_col <- "#FFF9A6"
 open_col <- "#6b6b6b"
@@ -47,13 +50,16 @@ cas_raw <- read_csv(
     tlaName,
     urban,
     speedLimit,
-    light
+    light,
+    crashLocation1,
+    crashLocation2
   )
 )
 
 bike_crashes <- cas_raw |>
   filter(
-    str_detect(region, "Whanganui"),
+    #str_detect(region, "Whanganui"),
+    tlaName == "Palmerston North City",
     bicycle > 0,
     crashYear >= first_year,
     crashYear <= last_year
@@ -171,7 +177,6 @@ fatal_by_year
 osm_pbf <- "2026/Day9/data/new-zealand-261105.osm.pbf"
 
 pn_points_nztm <- bike_crashes |>
-  filter(tlaName == "Palmerston North City", !is.na(X), !is.na(Y)) |>
   st_as_sf(coords = c("X", "Y"), crs = 2193) # turn X/Y columns into points in NZTM (metres)
 
 pn_extent <- pn_points_nztm |>
@@ -183,12 +188,15 @@ pn_bbox <- st_bbox(pn_extent)
 
 pn_coords <- st_coordinates(pn_points_nztm)
 
+
 pn_centre <- c(median(pn_coords[, "X"]), median(pn_coords[, "Y"]))
 
-pn_radius <- 0.75 * min(
-  pn_bbox[["xmax"]] - pn_bbox[["xmin"]],
-  pn_bbox[["ymax"]] - pn_bbox[["ymin"]]
-) / 2
+pn_radius <- 0.75 *
+  min(
+    pn_bbox[["xmax"]] - pn_bbox[["xmin"]],
+    pn_bbox[["ymax"]] - pn_bbox[["ymin"]]
+  ) /
+  2
 
 pn_circle <- st_point(pn_centre) |>
   st_sfc(crs = 2193) |>
@@ -199,6 +207,7 @@ pn_extent_4326 <- pn_circle |>
   st_bbox() |>
   st_as_sfc() |>
   st_transform(4326)
+
 
 pn_roads <- oe_read(
   osm_pbf,
@@ -223,7 +232,45 @@ pn_roads <- st_intersection(pn_roads, pn_circle)
 
 pn_rivers <- st_intersection(pn_rivers, pn_circle)
 
+
 pn_points <- st_filter(pn_points_nztm, pn_circle)
+
+top_locations <- bike_crashes |>
+  filter(
+    !is.na(X),
+    !is.na(Y),
+    !is.na(crashLocation1),
+    !is.na(crashLocation2)
+  ) |>
+  mutate(
+    road_a = pmin(crashLocation1, crashLocation2),
+    road_b = pmax(crashLocation1, crashLocation2),
+    location = paste(road_a, "&", road_b)
+  ) |>
+  summarise(n = n(), X = mean(X), Y = mean(Y), .by = location) |>
+  slice_max(n, n = 20, with_ties = FALSE) |>
+  mutate(
+    rank = row_number(),
+    label = paste0(rank, ". ", location, " (", n, ")")
+  ) |>
+  st_as_sf(coords = c("X", "Y"), crs = 2193)
+
+n_fatal <- sum(pn_points$crashSeverity == "Fatal Crash")
+
+n_other <- nrow(pn_points) - n_fatal
+
+key_x <- pn_centre[1] - 0.5 * pn_radius
+
+key_y_other <- pn_centre[2] + 0.7 * pn_radius
+
+key_y_fatal <- pn_centre[2] + 0.6 * pn_radius
+
+key_other_label <- paste0("Other bike crash (", n_other, ")")
+
+
+key_fatal_label <- paste0("Fatal crash (", n_fatal, ")")
+
+plot_title <- "Bike crashes in Palmerston North from 2020 - 2025"
 
 p_pn <- ggplot() +
   geom_sf(data = pn_circle, fill = bg_col, color = NA) +
@@ -242,17 +289,36 @@ p_pn <- ggplot() +
     data = filter(pn_points, crashSeverity != "Fatal Crash"),
     color = other_col,
     fill = other_col,
-    size = 1.8,
+    size = crash_size,
     stroke = 0.5,
-    shape = 21
+    shape = 21,
+    alpha = 0.7
   ) +
   geom_sf(
     data = filter(pn_points, crashSeverity == "Fatal Crash"),
     color = fatal_col,
     fill = fatal_col,
-    size = 1.8,
+    size = crash_size,
     stroke = 0.5,
-    shape = 21
+    shape = 21,
+    alpha = 0.7
+  ) +
+  geom_sf(
+    data = filter(top_locations, rank <= 3),
+    color = road_major_col,
+    fill = NA,
+    size = 9,
+    shape = 21,
+    stroke = 1
+  ) +
+  geom_sf_label(
+    data = filter(top_locations, rank <= 3),
+    aes(label = paste0(location, "\n", n, " crashes")),
+    nudge_y = 0.18 * pn_radius,
+    size = label_pt / .pt,
+    fill = "white",
+    color = road_major_col,
+    label.size = 0.3
   ) +
   geom_sf(
     data = pn_circle,
@@ -260,12 +326,66 @@ p_pn <- ggplot() +
     color = road_major_col,
     linewidth = 0.6
   ) +
+  annotate(
+    "rect",
+    xmin = key_x - 0.05 * pn_radius,
+    xmax = key_x + 0.7 * pn_radius,
+    ymin = key_y_fatal - 0.07 * pn_radius,
+    ymax = key_y_other + 0.07 * pn_radius,
+    fill = bg_col,
+    alpha = 0.9
+  ) +
+  annotate(
+    "point",
+    x = key_x,
+    y = key_y_other,
+    color = other_col,
+    fill = other_col,
+    size = crash_size,
+    stroke = 0.5,
+    shape = 21,
+    alpha = 0.7
+  ) +
+  annotate(
+    "text",
+    x = key_x + 0.06 * pn_radius,
+    y = key_y_other,
+    label = key_other_label,
+    hjust = 0,
+    size = label_pt / .pt,
+    color = road_major_col
+  ) +
+  annotate(
+    "point",
+    x = key_x,
+    y = key_y_fatal,
+    color = fatal_col,
+    fill = fatal_col,
+    size = crash_size,
+    stroke = 0.5,
+    shape = 21,
+    alpha = 0.7
+  ) +
+  annotate(
+    "text",
+    x = key_x + 0.06 * pn_radius,
+    y = key_y_fatal,
+    label = key_fatal_label,
+    hjust = 0,
+    size = label_pt / .pt,
+    color = road_major_col
+  ) +
   coord_sf(expand = FALSE) +
-  labs(title = "Bike crashes in Palmerston North cluster around the city centre") +
+  labs(title = plot_title) +
   theme_void() +
   theme(
     plot.background = element_rect(fill = "white", color = NA),
-    plot.title = element_text(face = "bold", size = 16, hjust = 0.5, margin = margin(b = 10)),
+    plot.title = element_text(
+      face = "bold",
+      size = 16,
+      hjust = 0.5,
+      margin = margin(b = 10)
+    ),
     plot.margin = margin(15, 15, 15, 15)
   )
 
@@ -276,6 +396,106 @@ ggsave(
   plot = p_pn,
   width = 8,
   height = 8,
+  dpi = 300,
+  device = ragg::agg_png
+)
+
+###############################################################################
+## Top ten crash locations                                                   ##
+###############################################################################
+
+top_locations
+
+top_title <- paste0(
+  nrow(top_locations),
+  " locations account for ",
+  sum(top_locations$n),
+  " of the ",
+  nrow(bike_crashes),
+  " bike crashes in Palmerston North"
+)
+
+top_caption <- paste(top_locations$label, collapse = "\n")
+
+p_top <- ggplot() +
+  geom_sf(data = pn_circle, fill = bg_col, color = NA) +
+  geom_sf(data = pn_rivers, color = river_col, linewidth = 0.3) +
+  geom_sf(
+    data = filter(pn_roads, !highway %in% major_roads),
+    color = road_minor_col,
+    linewidth = 0.25
+  ) +
+  geom_sf(
+    data = filter(pn_roads, highway %in% major_roads),
+    color = road_major_col,
+    linewidth = 0.35
+  ) +
+  geom_sf(
+    data = pn_circle,
+    fill = NA,
+    color = road_major_col,
+    linewidth = 0.6
+  ) +
+  geom_sf(
+    data = top_locations,
+    aes(size = n),
+    color = fatal_col,
+    fill = fatal_col,
+    shape = 21,
+    alpha = 0.75
+  ) +
+  geom_sf_text(
+    data = top_locations,
+    aes(label = rank),
+    color = "white",
+    size = label_pt / .pt,
+    fontface = "bold"
+  ) +
+  geom_sf(
+    data = filter(top_locations, rank <= 3),
+    color = road_major_col,
+    fill = NA,
+    size = 14,
+    shape = 21,
+    stroke = 1
+  ) +
+  geom_sf_label(
+    data = filter(top_locations, rank <= 3),
+    aes(label = paste0(location, "\n", n, " crashes")),
+    nudge_y = 0.18 * pn_radius,
+    size = label_pt / .pt,
+    fill = "white",
+    color = road_major_col,
+    label.size = 0.3
+  ) +
+  scale_size_continuous(range = c(5, 11), guide = "none") +
+  coord_sf(expand = FALSE) +
+  labs(title = top_title, caption = top_caption) +
+  theme_void() +
+  theme(
+    plot.background = element_rect(fill = "white", color = NA),
+    plot.title = element_text(
+      face = "bold",
+      size = 16,
+      hjust = 0.5,
+      margin = margin(b = 10)
+    ),
+    plot.caption = element_text(
+      hjust = 0,
+      size = 10,
+      lineheight = 1.2,
+      margin = margin(t = 10)
+    ),
+    plot.margin = margin(15, 15, 15, 15)
+  )
+
+p_top
+
+ggsave(
+  filename = "2026/Day9/output/palmerston_north_top_ten_locations.png",
+  plot = p_top,
+  width = 8,
+  height = 9,
   dpi = 300,
   device = ragg::agg_png
 )
