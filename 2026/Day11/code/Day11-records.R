@@ -3,7 +3,22 @@
 library(tidyverse)
 library(tidygeocoder)
 library(sf)
+library(camcorder)
+library(ggrepel)
+library(ggtext)
+library(sbBrand)
 #library(packcircles)
+
+systemfonts::require_font("Dancing Script")
+systemfonts::require_font("Baloo 2")
+systemfonts::require_font("Cabin")
+systemfonts::require_font("Noto Music")
+
+font <- "Dancing Script"
+label_font <- "Cabin"
+caption_font <- "Baloo 2"
+text_col <- "grey25"
+bg_col <- "white"
 
 #function to clean artist names
 clean_name <- function(x) {
@@ -79,20 +94,12 @@ artists <- read_csv("2026/Day11/data/artists_all.csv") |>
   mutate(artist_key = clean_name(Artist))
 
 #arcgis uses Esri's commercial adress and place data. It's more forgving than  OSM and the number of requests aren't limited.
-locations <- artists |>
-  distinct(Town, Region, Country) |>
-  unite(
-    "full_address",
-    Town,
-    Region,
-    Country,
-    sep = ", ",
-    na.rm = TRUE,
-    remove = FALSE
-  ) |>
-  geocode(address = full_address, method = "arcgis")
+#locations <- artists |>
+# distinct(Town, Region, Country) |>
+#unite( "full_address",Town,Region,Country,sep = ", ", na.rm = TRUE,remove = FALSE) |>
+#geocode(address = full_address, method = "arcgis")
 
-write_csv(locations, "2026/Day11/data/locations.csv")
+#write_csv(locations, "2026/Day11/data/locations.csv")
 locations <- read_csv("2026/Day11/data/locations.csv")
 
 missing_coords <- locations |>
@@ -136,300 +143,6 @@ crotchet_shape <- function(cx, cy, r) {
   st_union(head, stem)
 }
 
-#stave <- packed |>
-crossing(offset = -2:2) |>
-  mutate(
-    d = offset * 0.4 * r,
-    half = sqrt(pmax(r^2 - d^2, 0)),
-    x0 = cx - half,
-    x1 = cx + half,
-    y0 = cy + d
-  )
-
-#label_box <- packed |>
-mutate(
-  xmin = cx - 0.75 * r,
-  xmax = cx + 0.75 * r,
-  ymin = cy - 0.99 * r,
-  ymax = cy - 0.82 * r
-)
-
-
-# Treble and bass staves, notes in order of song count (Visuals 5 and 6)
-stave_gap <- 9
-
-staff <- records |>
-  select(Artist, songs) |>
-  mutate(
-    r = 2 * sqrt(songs / max(songs)),
-    stave = if_else(row_number() %% 2 == 1, "Treble", "Bass"),
-    stave_y = if_else(stave == "Treble", 0, -stave_gap),
-    width = 2.3 * r + 0.6
-  ) |>
-  group_by(stave) |>
-  mutate(
-    cx = 4 + cumsum(width) - width / 2,
-    label_row = row_number() %% 2
-  ) |>
-  ungroup()
-
-stave_end <- max(staff$cx + staff$width / 2) + 1
-
-stave_tbl <- tibble(stave = c("Treble", "Bass"), stave_y = c(0, -stave_gap))
-
-staff_lines <- stave_tbl |>
-  crossing(offset = -2:2) |>
-  mutate(y = stave_y + offset, x0 = 0, x1 = stave_end)
-
-bar_lines <- tibble(
-  x = c(0, stave_end),
-  y0 = -stave_gap - 2,
-  y1 = 2
-)
-
-plot_staff <- function(shape_fn, lift) {
-  notes <- staff |>
-    mutate(
-      cy = stave_y + lift(r),
-      geometry = st_sfc(pmap(list(cx, cy, r), shape_fn))
-    ) |>
-    st_as_sf()
-
-  ggplot() +
-    geom_segment(
-      data = staff_lines,
-      aes(x = x0, xend = x1, y = y, yend = y),
-      colour = "grey55",
-      linewidth = 0.3
-    ) +
-    geom_segment(
-      data = bar_lines,
-      aes(x = x, xend = x, y = y0, yend = y1),
-      colour = "grey35",
-      linewidth = 0.4
-    ) +
-    geom_text(
-      data = stave_tbl,
-      aes(x = 2, y = stave_y, label = stave),
-      fontface = "italic",
-      colour = "grey40",
-      size = 4
-    ) +
-    geom_sf(data = notes, fill = "#1b1b1b", colour = NA) +
-    geom_text(
-      data = staff,
-      aes(x = cx, y = stave_y - 2.5 - 0.8 * label_row, label = Artist),
-      vjust = 1,
-      colour = "grey25",
-      size = 2.8
-    ) +
-    labs(title = plot_title) +
-    theme_void() +
-    theme(
-      plot.title = element_text(
-        face = "bold",
-        size = 20,
-        hjust = 0.5,
-        margin = margin(b = 10)
-      ),
-      plot.background = element_rect(fill = "white", colour = NA)
-    )
-}
-
-# Visual 5: two staves, semibreves (day11_semibreve_staff.png)
-semibreve_staff_plot <- plot_staff(semibreve_shape, \(r) 0 * r)
-semibreve_staff_plot
-
-ggsave(
-  "2026/Day11/output/day11_semibreve_staff.png",
-  semibreve_staff_plot,
-  width = 14,
-  height = 7,
-  dpi = 300,
-  bg = "white",
-  create.dir = TRUE
-)
-
-# Visual 6: two staves, crotchets (day11_crotchet_staff.png)
-crotchet_staff_plot <- plot_staff(crotchet_shape, \(r) 0.4 * r)
-crotchet_staff_plot
-
-ggsave(
-  "2026/Day11/output/day11_crotchet_staff.png",
-  crotchet_staff_plot,
-  width = 14,
-  height = 7,
-  dpi = 300,
-  bg = "white",
-  create.dir = TRUE
-)
-
-# Longitude as time, latitude as pitch (Visuals 7 and 8)
-nudge_x <- function(df, gap = 1.04, iterations = 500) {
-  x <- df$x
-  y <- df$y
-  r <- df$radius * gap
-  n <- length(x)
-
-  for (k in seq_len(iterations)) {
-    for (i in seq_len(n - 1)) {
-      for (j in (i + 1):n) {
-        dx <- x[j] - x[i]
-        dy <- y[j] - y[i]
-        need <- sqrt(max((r[i] + r[j])^2 - dy^2, 0))
-
-        if (abs(dx) < need) {
-          dir <- if (dx == 0) sign(cos(i + j)) else sign(dx)
-          shift <- need - abs(dx)
-          wi <- r[j] / (r[i] + r[j])
-          x[i] <- x[i] - dir * shift * wi
-          x[j] <- x[j] + dir * shift * (1 - wi)
-        }
-      }
-    }
-  }
-
-  df |> mutate(x = x)
-}
-
-pitch_notes <- records |>
-  select(Artist, songs, Town, Region, Country) |>
-  left_join(
-    locations |> select(Town, Region, Country, long, lat),
-    by = c("Town", "Region", "Country")
-  ) |>
-  mutate(
-    x = long * 0.25,
-    y = lat * 7 / 60,
-    radius = 1.3 * sqrt(songs / max(songs))
-  ) |>
-  nudge_x() |>
-  arrange(x) |>
-  mutate(label_row = row_number() %% 2)
-
-pitch_left <- min(pitch_notes$x - pitch_notes$radius) - 4
-pitch_right <- max(pitch_notes$x + pitch_notes$radius) + 2
-
-pitch_lines <- crossing(
-  stave = c("Treble", "Bass"),
-  offset = 0:4
-) |>
-  mutate(
-    y = if_else(stave == "Treble", 2 + offset, -6 + offset),
-    x0 = pitch_left,
-    x1 = pitch_right
-  )
-
-pitch_bars <- tibble(
-  x = c(pitch_left, pitch_right),
-  y0 = -6,
-  y1 = 6
-)
-
-lat_ticks <- tibble(
-  lat = c(60, 30, 0, -30),
-  label = c("60°N", "30°N", "Equator", "30°S")
-) |>
-  mutate(y = lat * 7 / 60, x = pitch_left - 0.6)
-
-lon_ticks <- tibble(
-  lon = seq(-120, 180, by = 60),
-  label = c("120°W", "60°W", "0°", "60°E", "120°E", "180°")
-) |>
-  mutate(x = lon * 0.25)
-
-plot_pitch <- function(shape_fn, lift) {
-  notes <- pitch_notes |>
-    mutate(
-      cy = y + lift(radius),
-      geometry = st_sfc(pmap(list(x, cy, radius), shape_fn))
-    ) |>
-    st_as_sf()
-
-  ggplot() +
-    geom_hline(
-      yintercept = 0,
-      colour = "grey80",
-      linewidth = 0.3,
-      linetype = "dashed"
-    ) +
-    geom_segment(
-      data = pitch_lines,
-      aes(x = x0, xend = x1, y = y, yend = y),
-      colour = "grey55",
-      linewidth = 0.3
-    ) +
-    geom_segment(
-      data = pitch_bars,
-      aes(x = x, xend = x, y = y0, yend = y1),
-      colour = "grey35",
-      linewidth = 0.4
-    ) +
-    geom_text(
-      data = lat_ticks,
-      aes(x = x, y = y, label = label),
-      hjust = 1,
-      colour = "grey40",
-      size = 3
-    ) +
-    geom_text(
-      data = lon_ticks,
-      aes(x = x, y = -10.5, label = label),
-      colour = "grey40",
-      size = 3
-    ) +
-    geom_sf(data = notes, fill = "#1b1b1b", colour = NA) +
-    geom_text(
-      data = pitch_notes,
-      aes(x = x, y = y - 0.8 * radius - 0.4 - 0.8 * label_row, label = Artist),
-      vjust = 1,
-      colour = "grey25",
-      size = 2.6
-    ) +
-    labs(title = plot_title) +
-    theme_void() +
-    theme(
-      plot.title = element_text(
-        face = "bold",
-        size = 20,
-        hjust = 0.5,
-        margin = margin(b = 10)
-      ),
-      plot.background = element_rect(fill = "white", colour = NA)
-    )
-}
-
-# Visual 7: longitude/latitude staff, semibreves (day11_semibreve_pitch.png)
-semibreve_pitch_plot <- plot_pitch(semibreve_shape, \(r) 0 * r)
-semibreve_pitch_plot
-
-ggsave(
-  "2026/Day11/output/day11_semibreve_pitch.png",
-  semibreve_pitch_plot,
-  width = 16,
-  height = 6,
-  dpi = 300,
-  bg = "white",
-  create.dir = TRUE
-)
-
-# Visual 8: longitude/latitude staff, crotchets (day11_crotchet_pitch.png)
-crotchet_pitch_plot <- plot_pitch(crotchet_shape, \(r) 0.4 * r)
-crotchet_pitch_plot
-
-ggsave(
-  "2026/Day11/output/day11_crotchet_pitch.png",
-  crotchet_pitch_plot,
-  width = 16,
-  height = 6,
-  dpi = 300,
-  bg = "white",
-  create.dir = TRUE
-)
-
-# Visual 10: every artist on the longitude/latitude staff, note length shows song count (day11_all_artists_pitch.png)
-library(sf)
-
 minim_shape <- function(cx, cy, r) {
   head_x <- cx - 0.12 * r
   head_y <- cy - 0.4 * r
@@ -446,7 +159,7 @@ minim_shape <- function(cx, cy, r) {
 }
 
 dotted_minim_shape <- function(cx, cy, r) {
-  dot <- ellipse_poly(cx + 0.75 * r, cy - 0.4 * r, 0.09 * r, 0.09 * r, 0)
+  dot <- ellipse_poly(cx + 0.75 * r, cy - 0.4 * r, 0.14 * r, 0.14 * r, 0)
   st_union(minim_shape(cx, cy, r), dot)
 }
 
@@ -455,12 +168,37 @@ note_shape <- function(cx, cy, r, songs) {
     songs == 1 ~ list(crotchet_shape(cx, cy, r)),
     songs == 2 ~ list(minim_shape(cx, cy, r)),
     songs == 3 ~ list(dotted_minim_shape(cx, cy, r)),
-    .default = list(semibreve_shape(cx, cy, r))
+    .default = list(semibreve_shape(cx - 0.12 * r, cy, 0.62 * r))
   )[[1]]
 }
 
+space_x <- function(x, half_width, pad, region, bar_space) {
+  n <- length(x)
+  need <- half_width[-n] +
+    half_width[-1] +
+    pad +
+    if_else(region[-n] != region[-1], bar_space, 0)
+  offset <- c(0, cumsum(need))
+  isoreg(x - offset)$yf + offset
+}
+
+note_radius <- 1.15
+note_pad <- 0.1
+line_gap <- 28
+bar_space <- 1.2
+
+region_levels <- c(
+  "USA",
+  "Canada",
+  "Latin America and Caribbean",
+  "UK and Ireland",
+  "Europe",
+  "Africa",
+  "Asia",
+  "Australia and NZ"
+)
+
 all_notes <- artists |>
-  mutate(artist_key = clean_name(Artist)) |>
   distinct(artist_key, .keep_all = TRUE) |>
   inner_join(song_count, by = "artist_key") |>
   left_join(
@@ -471,30 +209,122 @@ all_notes <- artists |>
   mutate(
     x = long * 0.25,
     y = lat * 7 / 60,
-    radius = 0.6
+    radius = note_radius,
+    half_width = case_when(
+      songs <= 2 ~ 0.55,
+      songs == 3 ~ 0.75,
+      .default = 0.6
+    ) *
+      radius
   ) |>
-  nudge_x(gap = 0.95, iterations = 150) |>
-  arrange(x) |>
   mutate(
+    region = case_when(
+      Country == "USA" ~ "USA",
+      Country == "Canada" ~ "Canada",
+      Country %in%
+        c("Puerto Rico", "Trinidad and Tobago", "Colombia", "Mexico") ~
+        "Latin America and Caribbean",
+      Country %in% c("United Kingdom", "Ireland") ~ "UK and Ireland",
+      Country == "Tanzania" ~ "Africa",
+      Country %in%
+        c("India", "South Korea", "Singapore", "Philippines", "Armenia") ~
+        "Asia",
+      Country %in% c("Australia", "New Zealand") ~ "Australia and NZ",
+      .default = "Europe"
+    ),
+    region = factor(region, levels = region_levels),
+    line = if_else(
+      region %in% region_levels[1:3],
+      1,
+      2
+    )
+  ) |>
+  arrange(line, region, x) |>
+  group_by(line) |>
+  mutate(
+    x = space_x(
+      x,
+      half_width,
+      note_pad * note_radius,
+      region,
+      bar_space
+    ),
+    x = x - min(x - half_width) + 5
+  ) |>
+  ungroup() |>
+  mutate(
+    y = y - (line - 1) * line_gap,
     note_y = if_else(songs >= 4, y, y + 0.4 * radius),
-    label = if_else(songs >= 4, Artist, NA_character_)
+    note_col = if_else(songs >= 4, "#000000", "#9a9a9a")
   )
+
+region_bars <- all_notes |>
+  arrange(line, x) |>
+  group_by(line) |>
+  mutate(
+    next_region = lead(region),
+    bar_x = (x + half_width + lead(x - half_width)) / 2
+  ) |>
+  ungroup() |>
+  filter(!is.na(next_region), region != next_region) |>
+  transmute(
+    line,
+    x = bar_x,
+    y0 = -6 - (line - 1) * line_gap,
+    y1 = 6 - (line - 1) * line_gap
+  )
+
+#Clefs are text characters from the Unicode "Musical Symbols" block, drawn with the Noto Music font.
+#"\U0001D11E" is the Unicode code point U+1D11E, the treble (G) clef.
+#"\U0001D122" is U+1D122, the bass (F) clef. "\U" followed by eight hex digits is how R writes a character above U+FFFF.
+#y = 4 is the middle of the treble staff (lines at y = 2 to 6) and y = -4 is the middle of the bass staff (lines at y = -6 to -2).
+#Subtracting (line - 1) * line_gap moves the second line of music down, and x = 2.4 sits the clefs just right of the opening bar line.
+clefs <- crossing(
+  line = 1:2,
+  tibble(clef = c("\U0001D11E", "\U0001D122"), y = c(4, -4))
+) |>
+  mutate(y = y - (line - 1) * line_gap, x = 2.4)
 
 all_labels <- all_notes |>
   filter(songs >= 4) |>
-  mutate(label_row = row_number() %% 2)
+  mutate(
+    system_y = -(line - 1) * line_gap,
+    above = y - system_y >= 0
+  ) |>
+  arrange(line, x) |>
+  group_by(line, above) |>
+  mutate(stagger = (row_number() %% 2) * 1) |>
+  ungroup() |>
+  mutate(
+    label_y = system_y + if_else(above, 9 + stagger, -9 - stagger),
+    label_nudge = label_y - y
+  )
 
-all_left <- min(all_notes$x - all_notes$radius) - 4
-all_right <- max(all_notes$x + all_notes$radius) + 2
+all_right <- max(all_notes$x + all_notes$half_width) + 2
 
-all_lines <- pitch_lines |>
-  mutate(x0 = all_left, x1 = all_right)
+all_lines <- crossing(
+  line = 1:2,
+  stave = c("Treble", "Bass"),
+  offset = 0:4
+) |>
+  mutate(
+    y = if_else(stave == "Treble", 2 + offset, -6 + offset) -
+      (line - 1) * line_gap,
+    x0 = 0,
+    x1 = all_right
+  )
 
-all_bars <- pitch_bars |>
-  mutate(x = c(all_left, all_right))
+all_bars <- crossing(line = 1:2, x = c(0, all_right)) |>
+  mutate(
+    y0 = -6 - (line - 1) * line_gap,
+    y1 = 6 - (line - 1) * line_gap
+  )
 
-all_lat_ticks <- lat_ticks |>
-  mutate(x = all_left - 0.6)
+all_lat_ticks <- crossing(
+  line = 1:2,
+  tibble(lat = 0, label = "Equator")
+) |>
+  mutate(y = lat * 7 / 60 - (line - 1) * line_gap, x = -0.6)
 
 all_note_sf <- all_notes |>
   mutate(
@@ -505,13 +335,42 @@ all_note_sf <- all_notes |>
   ) |>
   st_as_sf()
 
+note_key <- tibble(
+  songs = 1:4,
+  label = c("1 song", "2 songs", "3 songs", "4 plus songs"),
+  x = 3 + (0:3) * 10,
+  y = -(line_gap + 14)
+) |>
+  mutate(
+    radius = note_radius,
+    note_y = if_else(songs >= 4, y, y + 0.4 * radius),
+    note_col = if_else(songs >= 4, "#000000", "#9a9a9a")
+  )
+
+note_key_sf <- note_key |>
+  mutate(
+    geometry = st_sfc(pmap(
+      list(x, note_y, radius, songs),
+      note_shape
+    ))
+  ) |>
+  st_as_sf()
+
+plot_title <- "My Spotify playlist visualised as sheet music"
+subtitle <- "Every note represents an artist, placed by their birthplace (or the lead singer's birthplace for a band). Notes run west to east, and height shows latitude. The equator is middle C. The longer notes mean there are more songs from that artist on my playlist. Whole notes are the artists with the most songs on my playlist. Bar lines separate the regions: USA, Canada, Latin America and the Caribbean, UK and Ireland, Europe, Africa, Asia, then Australia and NZ."
+social_caption <- sb_social_caption(
+  data_source = "Spotify playlists via Exportify"
+)
+
+gg_record(
+  device = "png",
+  width = 15,
+  height = 10,
+  unit = "in",
+  dpi = 300
+)
+
 all_pitch_plot <- ggplot() +
-  geom_hline(
-    yintercept = 0,
-    colour = "grey80",
-    linewidth = 0.3,
-    linetype = "dashed"
-  ) +
   geom_segment(
     data = all_lines,
     aes(x = x0, xend = x1, y = y, yend = y),
@@ -527,164 +386,304 @@ all_pitch_plot <- ggplot() +
   geom_text(
     data = all_lat_ticks,
     aes(x = x, y = y, label = label),
+    family = label_font,
     hjust = 1,
     colour = "grey40",
-    size = 3
+    size = 10 / .pt
+  ) +
+  geom_segment(
+    data = region_bars,
+    aes(x = x, xend = x, y = y0, yend = y1),
+    colour = "grey35",
+    linewidth = 0.4
   ) +
   geom_text(
-    data = lon_ticks,
-    aes(x = x, y = -10.5, label = label),
-    colour = "grey40",
-    size = 3
+    data = clefs,
+    aes(x = x, y = y, label = clef),
+    family = "Noto Music",
+    colour = text_col,
+    size = 24 / .pt
   ) +
-  geom_sf(data = all_note_sf, fill = "#1b1b1b", colour = NA) +
-  geom_text(
+  geom_sf(data = all_note_sf, aes(fill = note_col), colour = NA) +
+  geom_text_repel(
     data = all_labels,
-    aes(
-      x = x,
-      y = y - 0.8 * radius - 0.4 - 0.8 * label_row,
-      label = label
-    ),
-    vjust = 1,
-    colour = "grey25",
-    size = 2.6
+    aes(x = x, y = y, label = Artist),
+    nudge_y = all_labels$label_nudge,
+    direction = "x",
+    family = label_font,
+    colour = text_col,
+    size = 10 / .pt,
+    segment.colour = "grey60",
+    segment.size = 0.2,
+    min.segment.length = 0,
+    max.overlaps = Inf,
+    seed = 1
   ) +
-  theme_void() +
-  theme(plot.background = element_rect(fill = "white", colour = NA))
+  geom_sf(data = note_key_sf, aes(fill = note_col), colour = NA) +
+  scale_fill_identity() +
+  geom_text(
+    data = note_key,
+    aes(x = x + 1.4, y = y, label = label),
+    family = label_font,
+    hjust = 0,
+    colour = text_col,
+    size = 10 / .pt
+  ) +
+  labs(title = plot_title, subtitle = subtitle, caption = social_caption) +
+  theme_void(base_family = font) +
+  theme(
+    plot.title.position = "plot",
+    plot.margin = margin(10, 10, 10, 10),
+    plot.title = element_textbox_simple(
+      colour = text_col,
+      face = "bold",
+      size = 24,
+      margin = margin(b = 10)
+    ),
+    plot.subtitle = element_textbox_simple(
+      family = label_font,
+      colour = text_col,
+      size = 14,
+      margin = margin(b = 10)
+    ),
+    plot.caption = element_textbox_simple(
+      family = caption_font,
+      colour = text_col,
+      hjust = 0,
+      margin = margin(t = 10)
+    ),
+    plot.background = element_rect(fill = bg_col, colour = bg_col)
+  )
 
 all_pitch_plot
-
+record_polaroid()
 ggsave(
   "2026/Day11/output/day11_all_artists_pitch.png",
   all_pitch_plot,
-  width = 20,
-  height = 7,
+  width = 15,
+  height = 10,
   dpi = 300,
-  bg = "white",
+  bg = bg_col,
   create.dir = TRUE
 )
 
+ig_n_lines <- 3
+ig_line_gap <- 28
+ig_lines <- 1:ig_n_lines
 
-##Multi panel map
-#This is the one I like the least
-# Visual 9: three-panel map, Europe / US and Canada / NZ and Australia (day11_records_three_panel.png)
-panel_scale <- 140000
-
-region_limits <- function(box) {
-  st_bbox(
-    c(xmin = box[1], xmax = box[2], ymin = box[3], ymax = box[4]),
-    crs = 4326
+ig_notes <- all_notes |>
+  mutate(
+    x = long * 0.25,
+    y = lat * 7 / 60
   ) |>
-    st_as_sfc() |>
-    st_transform(equal_earth) |>
-    st_bbox()
-}
+  arrange(region, x) |>
+  mutate(line = ceiling(row_number() / ceiling(n() / ig_n_lines))) |>
+  group_by(line) |>
+  mutate(
+    x = space_x(
+      x,
+      half_width,
+      note_pad * note_radius,
+      region,
+      bar_space
+    ),
+    x = x - min(x - half_width) + 5
+  ) |>
+  ungroup() |>
+  mutate(
+    y = y - (line - 1) * ig_line_gap,
+    note_y = if_else(songs >= 4, y, y + 0.4 * radius)
+  )
 
-region_panel <- function(countries, box, label) {
-  lims <- region_limits(box)
+ig_region_bars <- ig_notes |>
+  arrange(line, x) |>
+  group_by(line) |>
+  mutate(
+    next_region = lead(region),
+    bar_x = (x + half_width + lead(x - half_width)) / 2
+  ) |>
+  ungroup() |>
+  filter(!is.na(next_region), region != next_region) |>
+  transmute(
+    line,
+    x = bar_x,
+    y0 = -6 - (line - 1) * ig_line_gap,
+    y1 = 6 - (line - 1) * ig_line_gap
+  )
 
-  rec <- records |>
-    filter(Country %in% countries, Artist != "HUNTR/X") |>
-    mutate(
-      x = x_true,
-      y = y_true,
-      radius = sqrt(songs) * panel_scale
-    ) |>
-    arrange(desc(songs)) |>
-    mutate(rank = row_number()) |>
-    nudge_apart()
+ig_clefs <- crossing(
+  line = ig_lines,
+  tibble(clef = c("\U0001D11E", "\U0001D122"), y = c(4, -4))
+) |>
+  mutate(y = y - (line - 1) * ig_line_gap, x = 2.4)
 
-  rec_moved <- rec |>
-    filter(sqrt((x - x_true)^2 + (y - y_true)^2) > 1000)
+ig_labels <- ig_notes |>
+  filter(songs >= 4) |>
+  mutate(
+    system_y = -(line - 1) * ig_line_gap,
+    above = y - system_y >= 0
+  ) |>
+  arrange(line, x) |>
+  group_by(line, above) |>
+  mutate(stagger = (row_number() %% 2) * 1) |>
+  ungroup() |>
+  mutate(
+    label_y = system_y + if_else(above, 9 + stagger, -9 - stagger),
+    label_nudge = label_y - y
+  )
 
-  rec_layers <- rec |>
-    group_split(rank) |>
-    map(record_layers) |>
-    list_flatten()
+ig_right <- max(ig_notes$x + ig_notes$half_width) + 2
 
-  ggplot() +
-    geom_sf(data = world, fill = "grey93", colour = "white", linewidth = 0.2) +
-    geom_segment(
-      data = rec_moved,
-      aes(x = x_true, y = y_true, xend = x, yend = y),
-      colour = "grey45",
-      linewidth = 0.3
-    ) +
-    geom_point(
-      data = rec_moved,
-      aes(x = x_true, y = y_true),
-      colour = "grey45",
-      size = 0.8
-    ) +
-    rec_layers +
-    scale_fill_identity(
-      guide = "legend",
-      breaks = unname(genre_colours),
-      labels = names(genre_colours),
-      name = NULL
-    ) +
-    coord_sf(
-      xlim = unname(lims[c("xmin", "xmax")]),
-      ylim = unname(lims[c("ymin", "ymax")]),
-      expand = FALSE
-    ) +
-    labs(title = label) +
-    theme_void() +
-    theme(
-      plot.title = element_text(face = "bold", size = 12, hjust = 0),
-      panel.border = element_rect(colour = "grey70", fill = NA),
-      plot.background = element_rect(fill = "white", colour = NA)
-    )
-}
+ig_staff_lines <- crossing(
+  line = ig_lines,
+  stave = c("Treble", "Bass"),
+  offset = 0:4
+) |>
+  mutate(
+    y = if_else(stave == "Treble", 2 + offset, -6 + offset) -
+      (line - 1) * ig_line_gap,
+    x0 = 0,
+    x1 = ig_right
+  )
 
-boxes <- list(
-  europe = c(-10, 22, 48, 61),
-  us_canada = c(-128, -62, 23, 52),
-  oceania = c(110, 180, -48, -8)
+ig_bars <- crossing(line = ig_lines, x = c(0, ig_right)) |>
+  mutate(
+    y0 = -6 - (line - 1) * ig_line_gap,
+    y1 = 6 - (line - 1) * ig_line_gap
+  )
+
+ig_lat_ticks <- crossing(
+  line = ig_lines,
+  tibble(lat = 0, label = "Equator")
+) |>
+  mutate(y = lat * 7 / 60 - (line - 1) * ig_line_gap, x = -0.6)
+
+ig_note_sf <- ig_notes |>
+  mutate(
+    geometry = st_sfc(pmap(
+      list(x, note_y, radius, songs),
+      note_shape
+    ))
+  ) |>
+  st_as_sf()
+
+ig_key <- note_key |>
+  mutate(
+    y = -(ig_line_gap * (ig_n_lines - 1) + 14),
+    note_y = if_else(songs >= 4, y, y + 0.4 * radius)
+  )
+
+ig_key_sf <- ig_key |>
+  mutate(
+    geometry = st_sfc(pmap(
+      list(x, note_y, radius, songs),
+      note_shape
+    ))
+  ) |>
+  st_as_sf()
+
+gg_record(
+  device = "png",
+  width = 12,
+  height = 15,
+  unit = "in",
+  dpi = 300
 )
 
-panel_widths <- map_dbl(boxes, \(b) {
-  lims <- region_limits(b)
-  unname(lims["xmax"] - lims["xmin"])
-})
+ig_pitch_plot <- ggplot() +
+  geom_segment(
+    data = ig_staff_lines,
+    aes(x = x0, xend = x1, y = y, yend = y),
+    colour = "grey55",
+    linewidth = 0.3
+  ) +
+  geom_segment(
+    data = ig_bars,
+    aes(x = x, xend = x, y = y0, yend = y1),
+    colour = "grey35",
+    linewidth = 0.4
+  ) +
+  geom_text(
+    data = ig_lat_ticks,
+    aes(x = x, y = y, label = label),
+    family = label_font,
+    hjust = 1,
+    colour = "grey40",
+    size = 10 / .pt
+  ) +
+  geom_segment(
+    data = ig_region_bars,
+    aes(x = x, xend = x, y = y0, yend = y1),
+    colour = "grey35",
+    linewidth = 0.4
+  ) +
+  geom_text(
+    data = ig_clefs,
+    aes(x = x, y = y, label = clef),
+    family = "Noto Music",
+    colour = text_col,
+    size = 24 / .pt
+  ) +
+  geom_sf(data = ig_note_sf, aes(fill = note_col), colour = NA) +
+  geom_text_repel(
+    data = ig_labels,
+    aes(x = x, y = y, label = Artist),
+    nudge_y = ig_labels$label_nudge,
+    direction = "x",
+    family = label_font,
+    colour = text_col,
+    size = 10 / .pt,
+    segment.colour = "grey60",
+    segment.size = 0.2,
+    min.segment.length = 0,
+    max.overlaps = Inf,
+    seed = 1
+  ) +
+  geom_sf(data = ig_key_sf, aes(fill = note_col), colour = NA) +
+  scale_fill_identity() +
+  geom_text(
+    data = ig_key,
+    aes(x = x + 1.4, y = y, label = label),
+    family = label_font,
+    hjust = 0,
+    colour = text_col,
+    size = 10 / .pt
+  ) +
+  labs(title = plot_title, subtitle = subtitle, caption = social_caption) +
+  theme_void(base_family = font) +
+  theme(
+    plot.title.position = "plot",
+    plot.margin = margin(10, 10, 10, 10),
+    plot.title = element_textbox_simple(
+      colour = text_col,
+      face = "bold",
+      size = 24,
+      margin = margin(b = 10)
+    ),
+    plot.subtitle = element_textbox_simple(
+      family = label_font,
+      colour = text_col,
+      size = 14,
+      margin = margin(b = 10)
+    ),
+    plot.caption = element_textbox_simple(
+      family = caption_font,
+      colour = text_col,
+      hjust = 0,
+      margin = margin(t = 10)
+    ),
+    plot.background = element_rect(fill = bg_col, colour = bg_col)
+  )
 
-europe_panel <- region_panel(
-  c("United Kingdom", "Sweden"),
-  boxes$europe,
-  "Europe"
-)
-us_panel <- region_panel(c("USA", "Canada"), boxes$us_canada, "US and Canada")
-oceania_panel <- region_panel(
-  c("New Zealand", "Australia"),
-  boxes$oceania,
-  "New Zealand and Australia"
-)
-
-three_panel <- patchwork::wrap_plots(
-  europe_panel,
-  us_panel,
-  oceania_panel,
-  nrow = 1,
-  widths = unname(panel_widths),
-  guides = "collect"
-) +
-  patchwork::plot_annotation(
-    title = plot_title,
-    theme = theme(
-      plot.title = element_text(face = "bold", size = 20, hjust = 0.5),
-      plot.background = element_rect(fill = "white", colour = NA)
-    )
-  ) &
-  theme(legend.position = "bottom")
-
-three_panel
+ig_pitch_plot
+record_polaroid()
 
 ggsave(
-  "2026/Day11/output/day11_records_three_panel.png",
-  three_panel,
-  width = 18,
-  height = 7,
+  "2026/Day11/output/day11_all_artists_pitch_instagram.png",
+  ig_pitch_plot,
+  width = 12,
+  height = 15,
   dpi = 300,
-  bg = "white",
+  bg = bg_col,
   create.dir = TRUE
 )
