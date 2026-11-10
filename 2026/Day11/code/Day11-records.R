@@ -4,7 +4,6 @@ library(tidyverse)
 library(tidygeocoder)
 #library(packcircles)
 
-
 #function to clean artist names
 clean_name <- function(x) {
   x |>
@@ -39,17 +38,21 @@ songs <- map(song_files, read_csv) |>
     `Artist Name(s)` = if_else(
       str_detect(
         `Album Name`,
-        regex("soundtrack|motion picture|\\bcast\\b|\\(from", ignore_case = TRUE)
+        regex(
+          "soundtrack|motion picture|\\bcast\\b|\\(from",
+          ignore_case = TRUE
+        )
       ),
       str_extract(`Artist Name(s)`, "^[^;]+"),
       `Artist Name(s)`
     )
-  )
+  ) |>
+  distinct(`Track Name`, .keep_all = TRUE)
 
 write_csv(songs, "2026/Day11/data/songs_clean.csv")
 
 songs_wide <- songs |>
-  select(`Track Name`, `Track URI`,artist = `Artist Name(s)`) |>
+  select(`Track Name`, `Track URI`, artist = `Artist Name(s)`) |>
   separate_wider_delim(
     artist,
     delim = ";",
@@ -63,16 +66,15 @@ song_long <- songs_wide |>
     names_to = NULL,
     values_to = "artist",
     values_drop_na = TRUE
-  ) 
+  )
 
-|>
+song_count <- song_long |>
   mutate(artist_key = clean_name(artist)) |>
-  filter(artist_key %in% artists$artist_key) |>
-  distinct(`Track URI`, artist_key) |>
   count(artist_key, name = "songs") |>
-  bind_rows(tibble(artist_key = "crowded house", songs = 4)) |>
   summarise(songs = sum(songs), .by = artist_key)
 
+artists <- read_csv("2026/Day11/data/artists_all.csv") |>
+  filter_out(is.na(Country))
 
 #arcgis uses Esri's commercial adress and place data. It's more forgving than  OSM and the number of requests aren't limited.
 locations <- artists |>
@@ -96,57 +98,6 @@ records <- artists |>
   st_transform(equal_earth) |>
   arrange(desc(songs)) |>
   mutate(rank = row_number(), radius = sqrt(songs) * size_scale)
-
-# Visual 1: world map, plain records (day11_records.png)
-piece_spec <- bind_rows(
-  tibble(frac = 1, fill = "#1b1b1b", line = "#000000", lw = 0.1),
-  tibble(
-    frac = seq(0.42, 0.95, length.out = 8),
-    fill = "#00000000",
-    line = "#4a4a4a",
-    lw = 0.08
-  ),
-  tibble(frac = 0.33, fill = "#d9482b", line = "#00000000", lw = 0),
-  tibble(frac = 0.04, fill = "#ffffff", line = "#00000000", lw = 0)
-) |>
-  mutate(piece = row_number())
-
-record_pieces <- piece_spec |>
-  pmap(\(frac, fill, line, lw, piece) {
-    records |>
-      mutate(
-        geometry = st_buffer(geometry, radius * frac),
-        fill = fill,
-        line = line,
-        lw = lw,
-        piece = piece
-      )
-  }) |>
-  bind_rows() |>
-  arrange(rank, piece)
-
-p <- ggplot() +
-  geom_sf(data = world, fill = "grey93", colour = "white", linewidth = 0.15) +
-  geom_sf(
-    data = record_pieces,
-    aes(fill = fill, colour = line, linewidth = lw)
-  ) +
-  scale_fill_identity() +
-  scale_colour_identity() +
-  scale_linewidth_identity() +
-  theme_void() +
-  theme(plot.background = element_rect(fill = "white", colour = NA))
-
-p
-ggsave(
-  "2026/Day11/output/day11_records.png",
-  p,
-  width = 14,
-  height = 8,
-  dpi = 300,
-  bg = "white",
-  create.dir = TRUE
-)
 
 
 # Visual 2: world map, genre-coloured records with names (day11_records_genre.png)
@@ -191,7 +142,10 @@ songs <- song_files |>
     `Artist Name(s)` = if_else(
       str_detect(
         `Album Name`,
-        regex("soundtrack|motion picture|\\bcast\\b|\\(from", ignore_case = TRUE)
+        regex(
+          "soundtrack|motion picture|\\bcast\\b|\\(from",
+          ignore_case = TRUE
+        )
       ),
       str_extract(`Artist Name(s)`, "^[^;]+"),
       `Artist Name(s)`
