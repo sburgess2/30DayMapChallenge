@@ -2,7 +2,7 @@
 
 library(tidyverse)
 library(tidygeocoder)
-library(packcircles)
+#library(packcircles)
 
 
 #function to clean artist names
@@ -22,8 +22,18 @@ songs <- map(song_files, read_csv) |>
   list_rbind() |>
   distinct(`Track URI`, .keep_all = TRUE) |>
   filter(
-    `Track Name` != "Faith",
-    !`Artist Name(s)` %in% c("T3NZU", "Snoblack")
+    `Track Name` != "Faith", #This has now been deleted from my playlist.
+    !`Artist Name(s)` %in% c("T3NZU", "Snoblack") #They sing Beggin, just kept original of Beggin
+  ) |>
+  mutate(
+    `Artist Name(s)` = if_else(
+      `Artist Name(s)` == "Disney;Shakira",
+      "Shakira",
+      `Artist Name(s)`
+    )
+  ) |>
+  mutate(
+    `Artist Name(s)` = str_remove(`Artist Name(s)`, "^Ziv Zaifman;")
   ) |>
   mutate(
     `Artist Name(s)` = if_else(
@@ -36,6 +46,8 @@ songs <- map(song_files, read_csv) |>
     )
   )
 
+write_csv(songs, "2026/Day11/data/songs_clean.csv")
+
 songs_wide <- songs |>
   select(`Track Name`, `Track URI`,artist = `Artist Name(s)`) |>
   separate_wider_delim(
@@ -43,18 +55,6 @@ songs_wide <- songs |>
     delim = ";",
     names_sep = "_",
     too_few = "align_start"
-  )
-
-artists <- read_csv(
-  "2026/Day11/data/artist.csv",
-  locale = locale(encoding = "latin1"),
-  show_col_types = FALSE
-) |>
-  select(Artist, Town, Region, Country) |>
-  drop_na(Artist) |>
-  mutate(
-    Artist = case_match(Artist, "Ed Sheerin" ~ "Ed Sheeran", .default = Artist),
-    artist_key = clean_name(Artist)
   )
 
 song_long <- songs_wide |>
