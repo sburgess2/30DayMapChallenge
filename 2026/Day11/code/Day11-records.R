@@ -20,7 +20,21 @@ song_files <- c(
 
 songs <- map(song_files, read_csv) |>
   list_rbind() |>
-  distinct(`Track URI`, .keep_all = TRUE)
+  distinct(`Track URI`, .keep_all = TRUE) |>
+  filter(
+    `Track Name` != "Faith",
+    !`Artist Name(s)` %in% c("T3NZU", "Snoblack")
+  ) |>
+  mutate(
+    `Artist Name(s)` = if_else(
+      str_detect(
+        `Album Name`,
+        regex("soundtrack|motion picture|\\bcast\\b|\\(from", ignore_case = TRUE)
+      ),
+      str_extract(`Artist Name(s)`, "^[^;]+"),
+      `Artist Name(s)`
+    )
+  )
 
 songs_wide <- songs |>
   select(`Track Name`, `Track URI`,artist = `Artist Name(s)`) |>
@@ -168,7 +182,21 @@ song_files <- c(
 songs <- song_files |>
   map(\(f) read_csv(f, col_types = cols(.default = "c"))) |>
   list_rbind() |>
-  distinct(`Track URI`, .keep_all = TRUE)
+  distinct(`Track URI`, .keep_all = TRUE) |>
+  filter(
+    `Track Name` != "Faith",
+    !`Artist Name(s)` %in% c("T3NZU", "Snoblack")
+  ) |>
+  mutate(
+    `Artist Name(s)` = if_else(
+      str_detect(
+        `Album Name`,
+        regex("soundtrack|motion picture|\\bcast\\b|\\(from", ignore_case = TRUE)
+      ),
+      str_extract(`Artist Name(s)`, "^[^;]+"),
+      `Artist Name(s)`
+    )
+  )
 
 songs_wide <- songs |>
   select(`Track URI`, artist = `Artist Name(s)`) |>
