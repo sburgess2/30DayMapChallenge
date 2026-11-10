@@ -2,6 +2,7 @@
 
 library(tidyverse)
 library(tidygeocoder)
+library(sf)
 #library(packcircles)
 
 #function to clean artist names
@@ -49,7 +50,7 @@ songs <- map(song_files, read_csv) |>
   ) |>
   distinct(`Track Name`, .keep_all = TRUE)
 
-write_csv(songs, "2026/Day11/data/songs_clean.csv")
+#write_csv(songs, "2026/Day11/data/songs_clean.csv")
 
 songs_wide <- songs |>
   select(`Track Name`, `Track URI`, artist = `Artist Name(s)`) |>
@@ -74,7 +75,8 @@ song_count <- song_long |>
   summarise(songs = sum(songs), .by = artist_key)
 
 artists <- read_csv("2026/Day11/data/artists_all.csv") |>
-  filter_out(is.na(Country))
+  drop_na(Country) |>
+  mutate(artist_key = clean_name(Artist))
 
 #arcgis uses Esri's commercial adress and place data. It's more forgving than  OSM and the number of requests aren't limited.
 locations <- artists |>
@@ -90,15 +92,18 @@ locations <- artists |>
   ) |>
   geocode(address = full_address, method = "arcgis")
 
-records <- artists |>
-  distinct(Artist, artist_key, Town, Region, Country) |>
-  inner_join(song_counts, by = "artist_key") |>
-  left_join(locations, by = c("Town", "Region", "Country")) |>
-  st_as_sf(coords = c("long", "lat"), crs = 4326) |>
-  st_transform(equal_earth) |>
-  arrange(desc(songs)) |>
-  mutate(rank = row_number(), radius = sqrt(songs) * size_scale)
+write_csv(locations, "2026/Day11/data/locations.csv")
+locations <- read_csv("2026/Day11/data/locations.csv")
 
+missing_coords <- locations |>
+  filter(is.na(lat) | is.na(long))
+
+stopifnot(
+  "Some locations have no lat or long, see missing_coords" = nrow(
+    missing_coords
+  ) ==
+    0
+)
 
 ellipse_poly <- function(cx, cy, a, b, angle, n = 120) {
   t <- seq(0, 2 * pi, length.out = n + 1)
@@ -131,8 +136,8 @@ crotchet_shape <- function(cx, cy, r) {
   st_union(head, stem)
 }
 
-stave <- packed |>
-  crossing(offset = -2:2) |>
+#stave <- packed |>
+crossing(offset = -2:2) |>
   mutate(
     d = offset * 0.4 * r,
     half = sqrt(pmax(r^2 - d^2, 0)),
@@ -141,82 +146,14 @@ stave <- packed |>
     y0 = cy + d
   )
 
-label_box <- packed |>
-  mutate(
-    xmin = cx - 0.75 * r,
-    xmax = cx + 0.75 * r,
-    ymin = cy - 0.99 * r,
-    ymax = cy - 0.82 * r
-  )
-
-plot_packed <- function(shape_fn) {
-  notes <- packed |>
-    mutate(geometry = st_sfc(pmap(list(cx, cy, r), shape_fn))) |>
-    st_as_sf()
-
-  ggplot() +
-    geom_segment(
-      data = stave,
-      aes(x = x0, xend = x1, y = y0, yend = y0),
-      colour = "grey65",
-      linewidth = 0.25
-    ) +
-    geom_sf(data = notes, aes(fill = label_fill), colour = NA) +
-    geom_fit_text(
-      data = label_box,
-      aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, label = Artist),
-      colour = "grey25",
-      grow = TRUE,
-      reflow = TRUE,
-      min.size = 0
-    ) +
-    scale_fill_identity(
-      guide = "legend",
-      breaks = unname(genre_colours),
-      labels = names(genre_colours),
-      name = NULL
-    ) +
-    labs(title = plot_title) +
-    theme_void() +
-    theme(
-      plot.title = element_text(
-        face = "bold",
-        size = 20,
-        hjust = 0.5,
-        margin = margin(b = 10)
-      ),
-      legend.position = "bottom",
-      plot.background = element_rect(fill = "white", colour = NA)
-    )
-}
-
-# Visual 3: circle packing, semibreves (day11_semibreve_packing.png)
-semibreve_plot <- plot_packed(semibreve_shape)
-semibreve_plot
-
-ggsave(
-  "2026/Day11/output/day11_semibreve_packing.png",
-  semibreve_plot,
-  width = 10,
-  height = 10,
-  dpi = 300,
-  bg = "white",
-  create.dir = TRUE
+#label_box <- packed |>
+mutate(
+  xmin = cx - 0.75 * r,
+  xmax = cx + 0.75 * r,
+  ymin = cy - 0.99 * r,
+  ymax = cy - 0.82 * r
 )
 
-# Visual 4: circle packing, crotchets (day11_crotchet_packing.png)
-crotchet_plot <- plot_packed(crotchet_shape)
-crotchet_plot
-
-ggsave(
-  "2026/Day11/output/day11_crotchet_packing.png",
-  crotchet_plot,
-  width = 10,
-  height = 10,
-  dpi = 300,
-  bg = "white",
-  create.dir = TRUE
-)
 
 # Treble and bass staves, notes in order of song count (Visuals 5 and 6)
 stave_gap <- 9
@@ -485,6 +422,143 @@ ggsave(
   crotchet_pitch_plot,
   width = 16,
   height = 6,
+  dpi = 300,
+  bg = "white",
+  create.dir = TRUE
+)
+
+# Visual 10: every artist on the longitude/latitude staff, note length shows song count (day11_all_artists_pitch.png)
+library(sf)
+
+minim_shape <- function(cx, cy, r) {
+  head_x <- cx - 0.12 * r
+  head_y <- cy - 0.4 * r
+  stem_x <- head_x + c(0.4, 0.48) * r
+  head <- st_difference(
+    ellipse_poly(head_x, head_y, 0.5 * r, 0.34 * r, 0.35),
+    ellipse_poly(head_x, head_y, 0.28 * r, 0.12 * r, 0.9)
+  )
+  stem <- st_polygon(list(cbind(
+    c(stem_x[1], stem_x[2], stem_x[2], stem_x[1], stem_x[1]),
+    c(head_y, head_y, cy + 0.9 * r, cy + 0.9 * r, head_y)
+  )))
+  st_union(head, stem)
+}
+
+dotted_minim_shape <- function(cx, cy, r) {
+  dot <- ellipse_poly(cx + 0.75 * r, cy - 0.4 * r, 0.09 * r, 0.09 * r, 0)
+  st_union(minim_shape(cx, cy, r), dot)
+}
+
+note_shape <- function(cx, cy, r, songs) {
+  case_when(
+    songs == 1 ~ list(crotchet_shape(cx, cy, r)),
+    songs == 2 ~ list(minim_shape(cx, cy, r)),
+    songs == 3 ~ list(dotted_minim_shape(cx, cy, r)),
+    .default = list(semibreve_shape(cx, cy, r))
+  )[[1]]
+}
+
+all_notes <- artists |>
+  mutate(artist_key = clean_name(Artist)) |>
+  distinct(artist_key, .keep_all = TRUE) |>
+  inner_join(song_count, by = "artist_key") |>
+  left_join(
+    locations |> select(Town, Region, Country, long, lat),
+    by = c("Town", "Region", "Country")
+  ) |>
+  drop_na(long, lat) |>
+  mutate(
+    x = long * 0.25,
+    y = lat * 7 / 60,
+    radius = 0.6
+  ) |>
+  nudge_x(gap = 0.95, iterations = 150) |>
+  arrange(x) |>
+  mutate(
+    note_y = if_else(songs >= 4, y, y + 0.4 * radius),
+    label = if_else(songs >= 4, Artist, NA_character_)
+  )
+
+all_labels <- all_notes |>
+  filter(songs >= 4) |>
+  mutate(label_row = row_number() %% 2)
+
+all_left <- min(all_notes$x - all_notes$radius) - 4
+all_right <- max(all_notes$x + all_notes$radius) + 2
+
+all_lines <- pitch_lines |>
+  mutate(x0 = all_left, x1 = all_right)
+
+all_bars <- pitch_bars |>
+  mutate(x = c(all_left, all_right))
+
+all_lat_ticks <- lat_ticks |>
+  mutate(x = all_left - 0.6)
+
+all_note_sf <- all_notes |>
+  mutate(
+    geometry = st_sfc(pmap(
+      list(x, note_y, radius, songs),
+      note_shape
+    ))
+  ) |>
+  st_as_sf()
+
+all_pitch_plot <- ggplot() +
+  geom_hline(
+    yintercept = 0,
+    colour = "grey80",
+    linewidth = 0.3,
+    linetype = "dashed"
+  ) +
+  geom_segment(
+    data = all_lines,
+    aes(x = x0, xend = x1, y = y, yend = y),
+    colour = "grey55",
+    linewidth = 0.3
+  ) +
+  geom_segment(
+    data = all_bars,
+    aes(x = x, xend = x, y = y0, yend = y1),
+    colour = "grey35",
+    linewidth = 0.4
+  ) +
+  geom_text(
+    data = all_lat_ticks,
+    aes(x = x, y = y, label = label),
+    hjust = 1,
+    colour = "grey40",
+    size = 3
+  ) +
+  geom_text(
+    data = lon_ticks,
+    aes(x = x, y = -10.5, label = label),
+    colour = "grey40",
+    size = 3
+  ) +
+  geom_sf(data = all_note_sf, fill = "#1b1b1b", colour = NA) +
+  geom_text(
+    data = all_labels,
+    aes(
+      x = x,
+      y = y - 0.8 * radius - 0.4 - 0.8 * label_row,
+      label = label
+    ),
+    vjust = 1,
+    colour = "grey25",
+    size = 2.6
+  ) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "white", colour = NA))
+
+all_pitch_plot
+
+ggsave(
+  "2026/Day11/output/day11_all_artists_pitch.png",
+  all_pitch_plot,
+  width = 20,
+  height = 7,
   dpi = 300,
   bg = "white",
   create.dir = TRUE
