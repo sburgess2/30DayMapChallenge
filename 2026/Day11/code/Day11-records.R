@@ -100,13 +100,6 @@ records <- artists |>
   mutate(rank = row_number(), radius = sqrt(songs) * size_scale)
 
 
-# Circle packing layout, no map (Visuals 3 and 4)
-pack <- circleProgressiveLayout(records$songs, sizetype = "area")
-
-packed <- records |>
-  select(Artist, songs, label_fill) |>
-  bind_cols(pack |> transmute(cx = x, cy = y, r = radius * 0.96))
-
 ellipse_poly <- function(cx, cy, a, b, angle, n = 120) {
   t <- seq(0, 2 * pi, length.out = n + 1)
   ex <- a * cos(t)
