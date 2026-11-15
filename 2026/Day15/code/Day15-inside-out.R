@@ -108,34 +108,31 @@ raven_range <- expand_grid(row = 0:1, v = seq(-0.40, 0.30, by = 0.02)) |>
   st_filter(st_buffer(germany_flipped, -5000))
 
 towns <- tribble(
-  ~u    , ~v    , ~label                              ,
-  0.900 , 0.030 , "Mother's hospice,\nGreenwell Town"
+  ~u    , ~v    , ~label      ,
+  0.900 , 0.030 , "Greenwell"
 ) |>
   as_points()
 
 features <- tribble(
   ~u     , ~v     , ~label        , ~hjust , ~fontface , ~colour , ~size ,
-   0.160 , -0.200 , "Raven Range" , 0.5    , "italic"  , earth   , 4     ,
-  -0.070 , -0.250 , "THE CANTONS" , 0.5    , "plain"   , earth   , 4.4   ,
-   0.720 ,  0.250 , "THE WEALD"   , 0.5    , "plain"   , earth   , 4.4
+   0.160 , -0.200 , "Raven Range" , 0.5    , "italic"  , earth   ,    11 ,
+  -0.070 , -0.250 , "THE CANTONS" , 0.5    , "plain"   , earth   ,    12 ,
+   0.720 ,  0.250 , "THE WEALD"   , 0.5    , "plain"   , earth   ,    12
 ) |>
   as_points()
 
 note_targets <- bind_rows(
   st_coordinates(easthome) |> as_tibble(),
-  st_line_sample(st_geometry(journey), sample = 0.96) |>
-    st_cast("POINT") |>
-    st_coordinates() |>
-    as_tibble(),
+  st_coordinates(towns) |> as_tibble(),
   st_coordinates(martensbridge) |> as_tibble()
 ) |>
   select(xend = X, yend = Y)
 
 notes <- tribble(
-  ~u     , ~v     , ~label                                   ,
-   1.080 ,  0.330 , "Easthome: add story text here"          ,
-   0.800 , -0.220 , "Road to Greenwell: add story text here" ,
-  -0.080 ,  0.350 , "Martensbridge: add story text here"
+  ~u     , ~v    , ~label                                   ,
+   1.250 , 0.300 , "Easthome: add story text here"          ,
+   0.980 , 0.560 , "Road to Greenwell: add story text here" ,
+  -0.170 , 0.250 , "Martensbridge: add story text here"
 ) |>
   mutate(
     to_xy(u, v),
@@ -151,7 +148,7 @@ notes <- tribble(
 library(camcorder)
 gg_record(
   device = "png",
-  width = 7,
+  width = 8,
   height = 8,
   unit = "in",
   dpi = 300
@@ -170,7 +167,7 @@ p <- ggplot(germany_flipped) +
     nudge_y = 20000,
     family = "fell",
     colour = ink,
-    size = 3.6,
+    size = 12 / .pt,
     lineheight = 0.9
   ) +
   geom_sf_text(
@@ -180,19 +177,34 @@ p <- ggplot(germany_flipped) +
       hjust = hjust,
       fontface = fontface,
       colour = colour,
-      size = size
+      size = size / .pt
     ),
     family = "fell"
   ) +
   scale_colour_identity() +
   scale_size_identity() +
   geom_curve(
-    data = notes,
+    data = filter(notes, !str_detect(label, "Road")),
     aes(x = x, y = y, xend = xend, yend = yend),
     curvature = 0.2,
     linewidth = 0.3,
     colour = ink,
     arrow = arrow(length = unit(0.15, "cm"))
+  ) +
+  geom_curve(
+    data = filter(notes, str_detect(label, "Road")),
+    aes(x = x, y = y, xend = xend, yend = yend),
+    curvature = -0.2,
+    linewidth = 0.3,
+    colour = ink,
+    arrow = arrow(length = unit(0.15, "cm"))
+  ) +
+  coord_sf(
+    xlim = c(
+      st_bbox(germany_flipped)[["xmin"]],
+      max(notes$x) + 990000
+    ),
+    clip = "off"
   ) +
   geom_label(
     data = notes,
@@ -200,8 +212,9 @@ p <- ggplot(germany_flipped) +
     family = "fell",
     colour = ink,
     fill = "#FBF8F2",
-    label.size = 0,
-    size = 3.2,
+    border.colour = "#E6D5B8",
+    linewidth = 0.6,
+    size = 9 / .pt,
     lineheight = 0.9
   ) +
   geom_sf(data = easthome, size = 3, colour = ink) +
@@ -212,7 +225,7 @@ p <- ggplot(germany_flipped) +
     nudge_y = 15000,
     family = "fell",
     colour = ink,
-    size = 4.6
+    size = 12 / .pt
   ) +
   geom_sf(data = martensbridge, size = 3, colour = ink) +
   geom_sf_text(
@@ -223,7 +236,7 @@ p <- ggplot(germany_flipped) +
     nudge_y = 15000,
     family = "fell",
     colour = ink,
-    size = 4.6
+    size = 12 / .pt
   ) +
   theme_void(base_family = "fell") +
   theme(
@@ -238,7 +251,7 @@ record_polaroid()
 ggsave(
   "2026/Day15/output/day15-upside-down-germany.png",
   p,
-  width = 7,
+  width = 8,
   height = 8,
   dpi = 300
 )
