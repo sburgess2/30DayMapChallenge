@@ -212,12 +212,11 @@ note_targets <- bind_rows(
 
 notes <- tribble(
   ~u     , ~v     , ~curve , ~label                                                                                  ,
-   1.200 ,  0.300 ,  0.2   , "In book three, Penric and Desdemona help investigate a murder in the Weald's capital." ,
-  -0.700 , -0.350 , -0.2   , "On the road, Penric names his demon Desdemona."                                        ,
-  -0.300 , -0.500 ,  0.2   , "Penric is allowed to keep Desdemona."                                                  ,
-  -0.700 ,  0.500 ,  0.2   , "Penric grows up at Jurald Court."                                                      ,
-  -0.700 ,  0.080 ,  0.2   , "On his way to his wedding, Penric inherits a dying sorcerer's demon."                  ,
-   0.380 ,  0.600 ,  0.2   , "Penric spends three years at the seminary training as a learned divine and sorcerer."
+   1.200 ,  0.300 , 0.2    , "In book three, Penric and Desdemona help investigate a murder in the Weald's capital." ,
+  -0.300 , -0.500 , 0.2    , "Penric is allowed to keep Desdemona."                                                  ,
+  -0.700 ,  0.500 , 0.2    , "Penric grows up at Jurald Court."                                                      ,
+  -0.700 ,  0.080 , 0.2    , "On his way to his wedding, Penric inherits a dying sorcerer's demon."                  ,
+   0.380 ,  0.600 , 0.2    , "Penric spends three years at the seminary training as a learned divine and sorcerer."
 ) |>
   mutate(
     to_xy(u, v),
