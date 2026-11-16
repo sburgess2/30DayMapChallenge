@@ -11,6 +11,51 @@ library(ggnewscale)
 
 systemfonts::require_font("Cormorant Garamond")
 
+sysfonts::font_add_google(
+  "Cormorant Garamond",
+  "cormorant_lab",
+  regular.wt = 600,
+  bold.wt = 700
+)
+sysfonts::font_add_google("Cormorant Garamond", "Cormorant Garamond")
+sysfonts::font_add("Segoe UI Symbol", "seguisym.ttf")
+showtext::showtext_auto()
+showtext::showtext_opts(dpi = 300)
+
+col_marker1 <- "#c0392b"
+col_number <- "white"
+col_text <- "#2b2b2b"
+col_text_light <- "grey40"
+col_title <- "grey20"
+col_page <- "#eef1f3"
+col_inset_border <- "grey40"
+col_cream <- "#f7f5ee"
+
+col_land <- "#f3ead8"
+col_coast <- "#d9ccae"
+col_sea <- "#cdd5db"
+col_road <- "#dccfb3"
+col_route <- "#1f3557"
+
+col_indigo <- "#1F3A5F"
+col_route_topo <- col_indigo
+col_label_text <- "#142640"
+col_halo <- "#FBF6EC"
+col_marker2 <- "#D4A72C"
+col_sea_topo <- "#d6dde0"
+col_coast_topo <- "#a9b59a"
+col_land_inset_topo <- "#cfdcb9"
+col_relief <- c(
+  "#e4ead3",
+  "#cfdcb9",
+  "#b9c9a1",
+  "#c5c4a3",
+  "#d8d3c0",
+  "#efece3"
+)
+col_hill_low <- "#2b3b4a"
+col_hill_high <- "white"
+
 points <- read_json(
   "2026/Day16/data/locations.json",
   simplifyVector = TRUE
@@ -54,6 +99,8 @@ night_legs <- legs |>
   filter(hours > 8, dist_km < 5) |>
   mutate(night = row_number())
 
+nakasendo_days <- ymd(c("2026-10-15", "2026-10-18"))
+
 roll5 <- function(x) {
   coalesce(lag(x, 2), 0) +
     coalesce(lag(x), 0) +
@@ -96,6 +143,7 @@ route <- legs |>
 
 km_by_mode <- route |>
   st_drop_geometry() |>
+  filter(mode != "walk" | between(day, nakasendo_days[1], nakasendo_days[2])) |>
   summarise(km = sum(km), .by = mode) |>
   deframe()
 
@@ -117,6 +165,26 @@ bb_main <- route |>
   st_transform(crs_plot) |>
   st_buffer(60000) |>
   st_bbox()
+
+map_ratio <- 1.75
+
+bb_half_h <- max(
+  (bb_main[["xmax"]] - bb_main[["xmin"]]) / map_ratio,
+  bb_main[["ymax"]] - bb_main[["ymin"]]
+) /
+  2
+
+bb_mid_y <- (bb_main[["ymin"]] + bb_main[["ymax"]]) / 2
+
+bb_main <- st_bbox(
+  c(
+    xmin = bb_main[["xmin"]],
+    ymin = bb_mid_y - bb_half_h,
+    xmax = bb_main[["xmax"]],
+    ymax = bb_mid_y + bb_half_h
+  ),
+  crs = st_crs(crs_plot)
+)
 
 extent <- bb_main |>
   st_as_sfc() |>
@@ -194,6 +262,27 @@ airports <- route |>
   st_cast("POINT") |>
   mutate(label = c("Chubu Centrair Airport", "Narita Airport"))
 
+route_proj <- st_transform(route, crs_plot)
+
+route_walk <- filter(
+  route_proj,
+  mode == "walk",
+  between(day, nakasendo_days[1], nakasendo_days[2])
+)
+
+walk_zone <- route_walk |>
+  st_union() |>
+  st_buffer(500)
+
+route_car <- route_proj |>
+  filter(mode == "car") |>
+  st_difference(walk_zone) |>
+  filter(!st_is_empty(geometry))
+
+route_other <- bind_rows(route_car, filter(route_proj, mode == "flight"))
+
+route_topo <- mutate(route_proj, mode = if_else(mode == "walk", "car", mode))
+
 plot_title <- "Walking the Nakasendo Way"
 
 subtitle <- paste0(
@@ -204,8 +293,8 @@ subtitle <- paste0(
 library(camcorder)
 gg_record(
   device = "png",
-  width = 10,
-  height = 6.5,
+  width = 11.69,
+  height = 8.27,
   unit = "in",
   dpi = 300
 )
@@ -213,22 +302,22 @@ gg_record(
 inset <- ggplot() +
   geom_sf(
     data = st_transform(land_inset, crs_plot),
-    fill = "#f3ead8",
-    colour = "#d9ccae",
+    fill = col_land,
+    colour = col_coast,
     linewidth = 0.1
   ) +
   geom_sf(
     data = st_transform(extent, crs_plot),
     fill = NA,
-    colour = "#c0392b",
+    colour = col_marker1,
     linewidth = 0.5
   ) +
   coord_sf(expand = FALSE) +
   theme_void() +
   theme(
     plot.background = element_rect(
-      fill = "#cdd5db",
-      colour = "grey40",
+      fill = col_sea,
+      colour = col_inset_border,
       linewidth = 0.3
     )
   )
@@ -244,26 +333,26 @@ p <- ggplot() +
   geom_sf(
     #plot map shape
     data = st_transform(land_main, crs_plot),
-    fill = "#f3ead8",
-    colour = "#d9ccae",
+    fill = col_land,
+    colour = col_coast,
     linewidth = 0.2
   ) +
   geom_sf(
     #plot the roads
     data = st_transform(motorway, crs_plot),
-    colour = "#dccfb3",
+    colour = col_road,
     linewidth = 0.15
   ) +
   geom_sf(
-    data = st_transform(filter(route, mode != "walk"), crs_plot),
+    data = route_other,
     aes(linetype = mode),
-    colour = "#1f3557",
+    colour = col_route,
     linewidth = 0.9
   ) +
   geom_sf(
-    data = st_transform(filter(route, mode == "walk"), crs_plot),
-    colour = "#1f3557",
-    linewidth = 1.8,
+    data = route_walk,
+    colour = col_route,
+    linewidth = 2.6,
     linetype = "dotted",
     lineend = "round"
   ) +
@@ -272,20 +361,20 @@ p <- ggplot() +
     shape = 21,
     size = 6,
     stroke = 0.4,
-    fill = "#c0392b",
-    colour = "#c0392b"
+    fill = col_marker1,
+    colour = col_marker1
   ) +
   geom_sf_text(
     data = stays,
     aes(label = num),
-    colour = "white",
+    colour = col_number,
     fontface = "bold",
     size = 8 / .pt
   ) +
   geom_sf_text(
     data = stays,
     aes(label = label),
-    colour = "#2b2b2b",
+    colour = col_text,
     size = 8 / .pt,
     hjust = 0,
     nudge_x = 14000
@@ -295,12 +384,12 @@ p <- ggplot() +
     aes(label = icon),
     family = "Segoe UI Symbol",
     size = 34 / .pt,
-    colour = "#1f3557"
+    colour = col_route
   ) +
   geom_sf_text(
     data = filter(airports, label == "Chubu Centrair Airport"),
     aes(label = label),
-    colour = "#2b2b2b",
+    colour = col_text,
     fontface = "italic",
     size = 8 / .pt,
     hjust = 0,
@@ -310,7 +399,7 @@ p <- ggplot() +
   geom_sf_text(
     data = filter(airports, label == "Narita Airport"),
     aes(label = label),
-    colour = "#2b2b2b",
+    colour = col_text,
     fontface = "italic",
     size = 8 / .pt,
     hjust = 1,
@@ -339,13 +428,13 @@ p <- ggplot() +
   ) +
   theme_void() +
   theme(
-    plot.background = element_rect(fill = "#eef1f3", colour = NA),
-    panel.background = element_rect(fill = "#cdd5db", colour = NA),
+    plot.background = element_rect(fill = col_page, colour = NA),
+    panel.background = element_rect(fill = col_sea, colour = NA),
     plot.title.position = "plot",
     plot.margin = margin(10, 10, 10, 10),
     plot.title = element_textbox_simple(
       family = "Cormorant Garamond",
-      colour = "grey20",
+      colour = col_title,
       face = "bold",
       size = 28,
       margin = margin(b = 2)
@@ -353,12 +442,12 @@ p <- ggplot() +
     plot.subtitle = element_textbox_simple(
       family = "Cormorant Garamond",
       face = "italic",
-      colour = "grey40",
+      colour = col_text_light,
       size = 14,
       margin = margin(b = 6)
     ),
     plot.caption = element_text(
-      colour = "grey40",
+      colour = col_text_light,
       size = 8,
       margin = margin(t = 6, b = 6, r = 6)
     )
@@ -367,14 +456,14 @@ p <- ggplot() +
 p
 
 #Other colours
-#d5e3ea
+
 record_polaroid()
 
 ggsave(
   "2026/Day16/output/japan_travel_route.png",
   p,
-  width = 10,
-  height = 6.5,
+  width = 11.69,
+  height = 8.27,
   dpi = 300
 )
 
@@ -415,35 +504,52 @@ hill <- mask(hill, land_vect)
 names(elev) <- "elev"
 names(hill) <- "hill"
 
-route_blue <- "#00b4ff"
-
 inset_topo <- ggplot() +
   geom_sf(
     data = st_transform(land_inset, crs_plot),
-    fill = "#cfdcb9",
-    colour = "#a9b59a",
+    fill = col_land_inset_topo,
+    colour = col_coast_topo,
     linewidth = 0.1
   ) +
   geom_sf(
     data = st_transform(extent, crs_plot),
     fill = NA,
-    colour = "#c0392b",
-    linewidth = 0.5
+    colour = col_indigo,
+    linewidth = 0.3
   ) +
   coord_sf(expand = FALSE) +
   theme_void() +
   theme(
     plot.background = element_rect(
-      fill = "#d6dde0",
-      colour = "grey40",
+      fill = col_sea_topo,
+      colour = col_indigo,
       linewidth = 0.3
     )
   )
 
+stays_xy <- st_coordinates(stays)
+airports_xy <- st_coordinates(airports)
+
+labels_topo <- bind_rows(
+  tibble(
+    text = stays$place,
+    x = stays_xy[, "X"] + 4000,
+    y = stays_xy[, "Y"],
+    hjust = 0
+  ),
+  tibble(
+    text = airports$label,
+    x = airports_xy[, "X"] + c(8000, 0),
+    y = airports_xy[, "Y"] + c(-12000, 14000),
+    hjust = c(0, 1)
+  )
+) |>
+  st_as_sf(coords = c("x", "y"), crs = crs_plot)
+
 gg_record(
   device = "png",
-  width = 10,
-  height = 6.5,
+  width = 11.69,
+  height = 8.27,
   unit = "in",
   dpi = 300
 )
@@ -451,7 +557,7 @@ gg_record(
 p_topo <- ggplot() +
   geom_spatraster(data = elev, aes(fill = elev), maxcell = 5e6) +
   scale_fill_gradientn(
-    colours = c("#e4ead3", "#cfdcb9", "#b9c9a1", "#c5c4a3", "#d8d3c0", "#efece3"),
+    colours = col_relief,
     values = scales::rescale(c(0, 300, 800, 1500, 2300, 3200)),
     limits = c(0, 3200),
     na.value = NA,
@@ -465,84 +571,41 @@ p_topo <- ggplot() +
     maxcell = 5e6
   ) +
   scale_fill_gradient(
-    low = "#2b3b4a",
-    high = "white",
+    low = col_hill_low,
+    high = col_hill_high,
     na.value = NA,
     guide = "none"
   ) +
   geom_sf(
     data = st_transform(land, crs_plot),
     fill = NA,
-    colour = "#a9b59a",
+    colour = col_coast_topo,
     linewidth = 0.2
   ) +
   geom_sf(
-    data = st_transform(filter(route, mode != "walk"), crs_plot),
+    data = route_topo,
     aes(linetype = mode),
-    colour = route_blue,
+    colour = col_route_topo,
     linewidth = 0.9
   ) +
-  geom_sf(
-    data = st_transform(filter(route, mode == "walk"), crs_plot),
-    colour = route_blue,
-    linewidth = 1.8,
-    linetype = "dotted",
-    lineend = "round"
-  ) +
-  geom_sf(
-    data = stays,
-    shape = 21,
-    size = 6,
-    stroke = 0.4,
-    fill = "#c0392b",
-    colour = "#c0392b"
-  ) +
-  geom_sf_text(
-    data = stays,
-    aes(label = num),
-    colour = "white",
-    fontface = "bold",
-    size = 8 / .pt
-  ) +
-  geom_sf_label(
-    data = stays,
-    aes(label = label),
-    fill = alpha("#f7f5ee", 0.75),
-    colour = "#2b2b2b",
-    label.size = 0,
-    size = 8 / .pt,
-    hjust = 0,
-    nudge_x = 14000
+  shadowtext::geom_shadowtext(
+    data = labels_topo,
+    aes(geometry = geometry, label = text, hjust = hjust),
+    stat = "sf_coordinates",
+    family = "cormorant_lab",
+    fontface = "bold.italic",
+    size = 14 / .pt,
+    colour = col_label_text,
+    bg.colour = col_halo,
+    bg.r = 0.18
   ) +
   geom_sf_text(
     data = icons,
     aes(label = icon),
     family = "Segoe UI Symbol",
     size = 34 / .pt,
-    colour = route_blue
-  ) +
-  geom_sf_label(
-    data = filter(airports, label == "Chubu Centrair Airport"),
-    aes(label = label),
-    fill = alpha("#f7f5ee", 0.75),
-    colour = "#2b2b2b",
-    fontface = "italic",
-    label.size = 0,
-    size = 8 / .pt,
-    hjust = 0,
-    nudge_x = 8000,
-    nudge_y = -12000
-  ) +
-  geom_sf_label(
-    data = filter(airports, label == "Narita Airport"),
-    aes(label = label),
-    fill = alpha("#f7f5ee", 0.75),
-    colour = "#2b2b2b",
-    fontface = "italic",
-    label.size = 0,
-    size = 8 / .pt,
-    hjust = 1,
-    nudge_y = 14000
+    colour = col_route_topo,
+    nudge_y = -9000
   ) +
   scale_linetype_manual(
     values = c(car = "solid", walk = "dotted", flight = "dashed"),
@@ -567,13 +630,13 @@ p_topo <- ggplot() +
   ) +
   theme_void() +
   theme(
-    plot.background = element_rect(fill = "#eef1f3", colour = NA),
-    panel.background = element_rect(fill = "#d6dde0", colour = NA),
+    plot.background = element_rect(fill = col_page, colour = NA),
+    panel.background = element_rect(fill = col_sea_topo, colour = NA),
     plot.title.position = "plot",
     plot.margin = margin(10, 10, 10, 10),
     plot.title = element_textbox_simple(
       family = "Cormorant Garamond",
-      colour = "grey20",
+      colour = col_title,
       face = "bold",
       size = 28,
       margin = margin(b = 2)
@@ -581,23 +644,23 @@ p_topo <- ggplot() +
     plot.subtitle = element_textbox_simple(
       family = "Cormorant Garamond",
       face = "italic",
-      colour = "grey40",
+      colour = col_text_light,
       size = 14,
       margin = margin(b = 6)
     ),
     plot.caption = element_text(
-      colour = "grey40",
+      colour = col_text_light,
       size = 8,
       margin = margin(t = 6, b = 6, r = 6)
     )
   )
 
 p_topo
-
+record_polaroid()
 ggsave(
   "2026/Day16/output/japan_travel_route_topo.png",
   p_topo,
-  width = 10,
-  height = 6.5,
+  width = 11.69,
+  height = 8.27,
   dpi = 300
 )
