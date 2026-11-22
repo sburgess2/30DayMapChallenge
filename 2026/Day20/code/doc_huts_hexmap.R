@@ -116,7 +116,7 @@ hex_width <- 30000 # flat-to-flat distance in metres (~780 km2 per hex)
 #24
 hex_grid <- st_make_grid(
   land,
-  cellsize = units::set_units(10, km),
+  cellsize = units::set_units(10.75, km),
   square = FALSE
 ) |>
   st_as_sf() |>
@@ -145,8 +145,8 @@ hex_data <- hex_data |>
   mutate(
     hut_class = cut(
       n_huts,
-      breaks = c(-Inf, 0, 1, 2, 3, 4, 5, Inf),
-      labels = c("0", "1", "2", "3", "4", "5", "6+")
+      breaks = c(-Inf, 0, 1, 3, 5, Inf),
+      labels = c("0", "1", "2-3", "4-5", "6+")
     )
   )
 
@@ -172,12 +172,10 @@ text_col <- "#3b3b3b"
 pal <- colorRampPalette(c("#56B1F7", "#132B43"))(6)
 hut_cols <- c(
   "0" = "#e2ddcb",
-  "1" = "#48cae4",
-  "2" = "#00b4d8",
-  "3" = "#0096c7",
-  "4" = "#0077b6",
-  "5" = "#023e8a",
-  "6+" = "#03045e"
+  "1" = "#a9cfe6",
+  "2-3" = "#5b9fd0",
+  "4-5" = "#2066ad",
+  "6+" = "#0b2a5c"
 )
 
 ###################
@@ -187,16 +185,38 @@ hut_cols <- c(
 plot_title <- "Where are New Zealand's backcountry huts located?"
 
 subtitle <- glue(
-  "Each hexagon covers about 780 km². Colour shows the number of Department of Conservation huts within each hexagon. ",
-  "and bivvies within it. There are {format(n_huts_total, big.mark = ',')} ",
-  "that are publicly availalble have at least one bunk.",
-  "have none."
+  "Huts and bivvies per 100 km² hexagon. Colour shows the number of Department of Conservation (DOC) huts and bivvies within each hexagon. ",
+  "The {format(n_huts_total, big.mark = ',')} huts mapped are all publicly available with at least one bunk."
 )
 
 social_caption <- sb_social_caption(
-  "DOC Open Spatial Data portal, DOC Huts.",
+  data_source = "Department of Conservation. Basemap: LINZ",
   font_family = text_font
 )
+
+annot <- tibble(
+  label = c(
+    "Kaweka\nRange",
+    "Ruahine\nRange",
+    "Tararua\nRange",
+    "Arthur's\nPass"
+  ),
+  lon = c(176.4, 176.0, 175.4, 171.56),
+  lat = c(-39.3, -39.95, -40.85, -42.94),
+  dx = c(85000, 95000, -45000, -120000),
+  dy = c(35000, -25000, -5000, 10000)
+) |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
+  st_transform(nztm) |>
+  mutate(
+    x = st_coordinates(geometry)[, 1],
+    y = st_coordinates(geometry)[, 2],
+    xt = x + dx,
+    yt = y + dy,
+    hjust = if_else(dx > 0, 0, 1),
+    xend = xt + if_else(dx > 0, -6000, 6000)
+  ) |>
+  st_drop_geometry()
 
 ###################
 ## Plot          ##
@@ -206,7 +226,7 @@ library(camcorder)
 
 gg_record(
   device = "png",
-  width = 7,
+  width = 8,
   height = 9,
   unit = "in",
   dpi = 300
@@ -214,47 +234,82 @@ gg_record(
 
 huts_hex_map <- ggplot() +
   geom_sf(
-    data = hex_data,
+    data = filter(hex_data, hut_class == "0"),
+    aes(colour = "No huts"),
+    fill = hut_cols[["0"]],
+    linewidth = 0.2
+  ) +
+  geom_sf(
+    data = filter(hex_data, hut_class != "0"),
     aes(fill = hut_class),
     colour = bg_col,
     linewidth = 0.2
   ) +
+  geom_segment(
+    data = annot,
+    aes(x = x, y = y, xend = xend, yend = yt),
+    colour = text_col,
+    linewidth = 0.3
+  ) +
+  geom_point(data = annot, aes(x = x, y = y), colour = text_col, size = 0.8) +
+  geom_text(
+    data = annot,
+    aes(x = xt, y = yt, label = label, hjust = hjust),
+    family = text_font,
+    colour = text_col,
+    size = 3,
+    lineheight = 0.9
+  ) +
   scale_fill_manual(
     values = hut_cols,
     name = "Huts per hexagon",
-    guide = guide_legend(nrow = 1, title.position = "top")
+    guide = guide_legend(order = 1, nrow = 1, title.position = "top")
+  ) +
+  scale_colour_manual(
+    values = c("No huts" = bg_col),
+    name = NULL,
+    guide = guide_legend(
+      order = 2,
+      override.aes = list(fill = hut_cols[["0"]])
+    )
   ) +
   labs(
     title = plot_title,
     subtitle = subtitle,
-    #caption = social_caption
+    caption = social_caption
   ) +
   theme_void(base_family = text_font, base_size = 11) +
   theme(
     plot.background = element_rect(fill = bg_col, colour = NA),
     panel.background = element_rect(fill = bg_col, colour = NA),
-    plot.margin = margin(15, 15, 15, 15),
+    plot.margin = margin(5, 5, 5, 5),
     legend.position = "inside",
     legend.position.inside = c(0.78, 0.12),
+    legend.box = "vertical",
+    legend.box.just = "left",
     legend.title = element_text(family = text_font, colour = text_col),
     legend.text = element_text(family = text_font, colour = text_col),
     plot.title.position = "plot",
+    plot.caption.position = "plot",
     plot.title = element_textbox_simple(
       family = title_font,
       face = "bold",
       colour = text_col,
       size = 16,
-      margin = margin(b = 6)
+      width = unit(6.4, "in"),
+      margin = margin(b = 10)
     ),
     plot.subtitle = element_textbox_simple(
       family = text_font,
       colour = text_col,
       size = 11,
       lineheight = 1.1,
+      width = unit(6.4, "in"),
       margin = margin(b = 10)
     ),
     plot.caption = element_textbox_simple(
       family = brand_font,
+      width = unit(6.4, "in"),
       colour = text_col,
       size = 10,
       margin = margin(t = 10)
@@ -269,7 +324,7 @@ gg_stop_recording()
 ###################
 
 ggsave(
-  filename = "output/doc_huts_hexmap.png",
+  filename = "2026/Day20/output/doc_huts_hexmap.png",
   plot = huts_hex_map,
   width = 7,
   height = 9,
