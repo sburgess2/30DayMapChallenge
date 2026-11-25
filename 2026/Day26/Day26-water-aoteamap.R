@@ -120,7 +120,7 @@ stroke_col <- "#4D4D4D"
 stroke_col <- "black"
 ecoli_col <- brand_color
 ent_col <- "#2C6E8F"
-icon_col <- "black"
+
 
 ###############################################################################
 ###############################
@@ -200,40 +200,6 @@ human_threshold <- 0.10
 human_bubbles <- site_bubbles |>
   filter(human_detected, pct_over > human_threshold)
 
-human_icon_file <- tempfile(fileext = ".png")
-
-fa_png("person", file = human_icon_file, fill = icon_col, width = 256)
-
-human_icon <- readPNG(human_icon_file)
-
-icon_height <- 900
-
-icon_layers <- function(bubbles) {
-  marks <- human_bubbles |>
-    filter(indicator %in% unique(bubbles$indicator))
-
-  if (nrow(marks) == 0) {
-    return(NULL)
-  }
-
-  xy <- st_coordinates(marks)
-  half_height <- icon_height / 2
-  half_width <- half_height * (dim(human_icon)[2] / dim(human_icon)[1])
-
-  pmap(
-    list(xy[, 1], xy[, 2]),
-    \(x, y) {
-      annotation_raster(
-        human_icon,
-        xmin = x - half_width,
-        xmax = x + half_width,
-        ymin = y - half_height,
-        ymax = y + half_height,
-        interpolate = TRUE
-      )
-    }
-  )
-}
 
 ecoli_bubbles <- site_bubbles |>
   filter(indicator == "E. coli")
@@ -265,23 +231,6 @@ map_sites <- function(bubbles, bubble_col, subtitle) {
       colour = stroke_col,
       #stroke = 0.3,
       alpha = 0.5
-    ) +
-    icon_layers(bubbles) +
-    geom_text_repel(
-      data = nudged,
-      mapping = aes(geometry = geometry, label = label),
-      stat = "sf_coordinates",
-      family = font,
-      size = 2.4696,
-      colour = text_col,
-      lineheight = 1.1,
-      seed = 1,
-      nudge_y = nudged$label_nudge,
-      min.segment.length = 0,
-      segment.colour = label_col,
-      segment.size = 0.3,
-      box.padding = 0.7,
-      point.padding = 0.4
     ) +
     scale_size_area(
       max_size = 14,
