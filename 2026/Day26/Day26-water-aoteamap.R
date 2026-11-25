@@ -21,7 +21,7 @@ library(png)
 ## Load data ##
 ###############
 
-raw <- read_csv("data/raw/2026_07_27_SSdata_GBI.csv")
+raw <- read_csv("2026/Day26/data/2026_07_27_SSdata_GBI.csv")
 
 water <- raw |>
   select(
@@ -61,7 +61,7 @@ aotea_window <- st_bbox(
 #)[1]
 
 aotea <- st_read(
-  "data/linz/lds-nz-coastlines-and-islands-polygons-topo-150k-SHP/nz-coastlines-and-islands-polygons-topo-150k.shp"
+  "2026/Day26/data/lds-nz-coastlines-and-islands-polygons-topo-150k-SHP/nz-coastlines-and-islands-polygons-topo-150k.shp"
 ) |>
   st_transform(nztm) |>
   st_make_valid() |>
@@ -116,8 +116,6 @@ brand_color <- "#55692f"
 land_col <- "#D9D9D9"
 sea_col <- "#FCFCFC"
 coast_col <- "#BFBFBF"
-stroke_col <- "#4D4D4D"
-stroke_col <- "black"
 ecoli_col <- brand_color
 ent_col <- "#2C6E8F"
 
@@ -138,7 +136,8 @@ linkedin_username <- "sa-burgess2"
 ## Titles, subtitles, captions   ##
 ###################################
 
-plot_title <- "tbc"
+plot_title <- "Two Aotea swimming spots fail water testing half the time"
+plot_subtitle <- "Proportion of samples above the safe swimming limit at each monitored site. Check safeswim.org.nz before swimming at Awana Stream, Medlands Stream or Mulberry Grove South."
 
 ent_limit <- 280
 ecoli_limit <- 550
@@ -146,14 +145,14 @@ ecoli_limit <- 550
 ecoli_subtitle <- glue(
   "<span style='color:{ecoli_col}'>*E. coli* at freshwater and estuary ",
   "sites</span> <span style='color:{label_col}'>. The size of each bubble indicates the percentage of samples",
-  " (collected Jan 2023 - Jul 2026) above ",
+  " (collected Oct-Apr, 2023/24 to 2025/26) above ",
   "{ecoli_limit} MPN/100mL</span>"
 )
 
 ent_subtitle <- glue(
   "<span style='color:{ent_col}'>Enterococci at marine sites</span> ",
   "<span style='color:{label_col}'>. The size of each bubble indicates the percentage of samples",
-  " (collected Jan 2023 - Jul 2026) above ",
+  " (collected Oct-Apr, 2023/24 to 2025/26) above ",
   "{ent_limit} MPN/100mL</span>"
 )
 
@@ -167,14 +166,20 @@ social_caption <- sb_social_caption(
 ##########
 
 gg_record(
-  device = agg_png,
+  device = png,
   width = 7,
   height = 8,
   unit = "in",
   dpi = 300
 )
 
-site_to_remove <- c("Mulberry Grove", "Medlands North", "Gooseberry Flat Beach")
+bubble_pal <- c(
+  "30% or more" = "#D72000FF",
+  "10-29%" = "#FFAD0AFF",
+  "Under 10%" = "#9093A2FF"
+)
+
+site_to_remove <- c("Mulberry Grove", "Gooseberry Flat Beach")
 site_bubbles <- water |>
   mutate(
     indicator = if_else(location_type == "Marine", "Enterococci", "E. coli"),
@@ -182,23 +187,31 @@ site_bubbles <- water |>
     limit = if_else(location_type == "Marine", ent_limit, ecoli_limit)
   ) |>
   filter(!is.na(value)) |>
+  filter(
+    month(date) %in% c(10:12, 1:4),
+    date >= ymd("2023-10-01"),
+    date < ymd("2026-05-01")
+  ) |>
   filter_out(site %in% site_to_remove) |>
   summarise(
     samples = n(),
     pct_over = mean(value > limit),
     human_detected = any(human_detected),
-    lon = first(lon),
-    lat = first(lat),
+    lon = median(lon),
+    lat = median(lat),
     .by = c(site, location_type, indicator)
   ) |>
-  mutate(label = site) |>
+  mutate(
+    bubble_col = case_when(
+      pct_over >= 0.3 ~ "30% or more",
+      pct_over >= 0.1 ~ "10-29%",
+      .default = "Under 10%"
+    ) |>
+      factor(levels = c("30% or more", "10-29%", "Under 10%"))
+  ) |>
+  #mutate(label = site) |>
   st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
   st_transform(nztm)
-
-human_threshold <- 0.10
-
-human_bubbles <- site_bubbles |>
-  filter(human_detected, pct_over > human_threshold)
 
 
 ecoli_bubbles <- site_bubbles |>
@@ -210,79 +223,125 @@ ent_bubbles <- site_bubbles |>
 min_pct <- min(site_bubbles$pct_over)
 max_pct <- max(site_bubbles$pct_over)
 
+medlands_nudge_x <- 400
+
+medlands_beach <- site_bubbles |>
+  filter(site == "Medlands Beach") |>
+  mutate(
+    geometry = st_set_crs(
+      st_geometry(geometry) + c(medlands_nudge_x, 0),
+      st_crs(site_bubbles)
+    )
+  )
+
+other_bubbles <- site_bubbles |>
+  filter(site != "Medlands Beach")
+
+label_sites <- bind_rows(other_bubbles, medlands_beach) |>
+  mutate(
+    site_label = str_squish(str_remove_all(site, "\\s*\\([^)]*\\)")),
+    label = glue("{site_label}\n{scales::percent(pct_over, accuracy = 1)}")
+  )
+
+label_pal <- c(
+  "30% or more" = "#D72000FF",
+  "10-29%" = text_col,
+  "Under 10%" = text_col
+)
+
 label_nudges <- c("Awana Stream Campground" = 1900)
 
-map_sites <- function(bubbles, bubble_col, subtitle) {
-  nudged <- bubbles |>
-    mutate(label_nudge = coalesce(unname(label_nudges[site]), 0))
-
-  ggplot() +
-    geom_sf(
-      data = aotea,
-      fill = land_col,
-      colour = coast_col,
-      linewidth = 0.2
-    ) +
-    geom_sf(
-      data = bubbles,
-      mapping = aes(size = pct_over),
-      shape = 21,
-      fill = bubble_col,
-      colour = stroke_col,
-      #stroke = 0.3,
-      alpha = 0.5
-    ) +
-    scale_size_area(
-      max_size = 14,
-      limits = c(0, max_pct),
-      breaks = c(min_pct, max_pct),
-      labels = scales::label_percent(accuracy = 1),
-      guide = guide_legend(
-        title = "Proportion of samples above the limit",
-        title.position = "top",
-        direction = "horizontal",
-        override.aes = list(
-          shape = 21,
-          fill = "grey70",
-          colour = stroke_col,
-          alpha = 0.5
-        )
+ggplot() +
+  geom_sf(
+    data = aotea,
+    fill = land_col,
+    colour = coast_col,
+    linewidth = 0.2
+  ) +
+  geom_sf(
+    data = other_bubbles,
+    mapping = aes(size = pct_over, fill = bubble_col),
+    shape = 21,
+    colour = "white"
+    #stroke = 0.3,
+    #alpha = 0.5
+  ) +
+  geom_sf(
+    data = medlands_beach,
+    mapping = aes(size = pct_over, fill = bubble_col),
+    shape = 21,
+    colour = "white"
+    #alpha = 0.5
+  ) +
+  geom_text_repel(
+    data = label_sites,
+    mapping = aes(label = label, geometry = geometry, colour = bubble_col),
+    stat = "sf_coordinates",
+    family = font,
+    size = 2.5,
+    lineheight = 0.9,
+    min.segment.length = 0,
+    segment.colour = label_col,
+    segment.size = 0.2,
+    box.padding = 0.5,
+    point.padding = 0.3,
+    max.overlaps = Inf,
+    seed = 1
+  ) +
+  scale_fill_manual(values = bubble_pal) +
+  scale_colour_manual(values = label_pal, guide = "none") +
+  scale_size_area(
+    max_size = 14,
+    limits = c(0, max_pct),
+    breaks = c(min_pct, max_pct),
+    labels = scales::label_percent(accuracy = 1),
+    guide = guide_legend(
+      title = "Proportion of samples above the limit",
+      title.position = "top",
+      direction = "horizontal",
+      override.aes = list(
+        shape = 21,
+        fill = "grey70",
+        colour = "white"
+        #alpha = 0.5
       )
-    ) +
-    coord_sf(datum = NA, expand = FALSE) +
-    labs(
-      subtitle = subtitle,
-      x = NULL,
-      y = NULL
-    ) +
-    theme_void(base_family = font, base_size = 10) +
-    theme(
-      legend.position = "bottom",
-      legend.title = element_text(color = label_col, size = 8),
-      legend.text = element_text(color = label_col, size = 8),
-      legend.key = element_blank(),
-      legend.background = element_blank(),
-      plot.title.position = "plot",
-      plot.margin = margin(10, 10, 10, 10),
-      plot.caption = element_textbox_simple(
-        color = text_col,
-        hjust = 0,
-        margin = margin(t = 10)
-      ),
-      #plot.title = element_textbox_simple(
-      #  color = title_col,
-      # face = "bold",
-      #size = rel(1.2)
-      #),
-      plot.subtitle = element_textbox_simple(
-        color = text_col,
-        margin = margin(t = 5, b = 14)
-      ),
-      panel.background = element_rect(fill = sea_col, color = NA),
-      plot.background = element_rect(fill = bg_col, color = bg_col)
     )
-}
+  ) +
+  coord_sf(datum = NA, expand = FALSE) +
+  labs(
+    title = plot_title,
+    subtitle = plot_subtitle,
+    x = NULL,
+    y = NULL
+  ) +
+  theme_void(base_family = font, base_size = 10) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(color = label_col, size = 8),
+    legend.text = element_text(color = label_col, size = 8),
+    legend.key = element_blank(),
+    legend.background = element_blank(),
+    plot.title.position = "plot",
+    plot.margin = margin(10, 10, 10, 10),
+    plot.caption = element_textbox_simple(
+      color = text_col,
+      hjust = 0,
+      margin = margin(t = 10)
+    ),
+    #plot.title = element_textbox_simple(
+    #  color = title_col,
+    # face = "bold",
+    #size = rel(1.2)
+    #),
+    plot.subtitle = element_textbox_simple(
+      color = text_col,
+      margin = margin(t = 5, b = 14)
+    ),
+    panel.background = element_rect(fill = sea_col, color = NA),
+    plot.background = element_rect(fill = bg_col, color = bg_col)
+  )
 
+record_polaroid()
 ecoli_map <- map_sites(ecoli_bubbles, ecoli_col, ecoli_subtitle)
 
 ent_map <- map_sites(ent_bubbles, ent_col, ent_subtitle)
@@ -321,7 +380,7 @@ aotea_maps <- ecoli_map +
 
 aotea_maps
 
-record_polaroid()
+gg_stop_recording()
 
 ###############################################################################
 ##############1
@@ -333,6 +392,307 @@ ggsave(
   filename = "output/20260814-aotea_maps.png",
   width = 11,
   height = 7,
+  unit = "in",
+  bg = bg_col,
+  dpi = 300,
+  device = agg_png
+)
+
+###############################################################################
+######################
+## Season panel map ##
+######################
+
+season_bubbles <- water |>
+  mutate(
+    indicator = if_else(location_type == "Marine", "Enterococci", "E. coli"),
+    value = if_else(location_type == "Marine", enterococci, e_coli),
+    limit = if_else(location_type == "Marine", ent_limit, ecoli_limit),
+    season = case_when(
+      date >= ymd("2023-10-01") & date < ymd("2024-05-01") ~ "2023/24",
+      date >= ymd("2024-10-01") & date < ymd("2025-05-01") ~ "2024/25",
+      date >= ymd("2025-10-01") & date < ymd("2026-05-01") ~ "2025/26"
+    )
+  ) |>
+  filter(!is.na(value), !is.na(season)) |>
+  filter_out(site %in% site_to_remove) |>
+  mutate(
+    lon = median(lon),
+    lat = median(lat),
+    .by = site
+  ) |>
+  summarise(
+    samples = n(),
+    pct_over = mean(value > limit),
+    lon = first(lon),
+    lat = first(lat),
+    .by = c(site, season, location_type, indicator)
+  ) |>
+  mutate(
+    bubble_col = case_when(
+      pct_over >= 0.3 ~ "30% or more",
+      pct_over >= 0.1 ~ "10-29%",
+      .default = "Under 10%"
+    ) |>
+      factor(levels = c("30% or more", "10-29%", "Under 10%")),
+    site_label = str_squish(str_remove_all(site, "\\s*\\([^)]*\\)")),
+    label = glue("{site_label}\n{scales::percent(pct_over, accuracy = 1)}")
+  ) |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
+  st_transform(nztm)
+
+season_xy <- st_coordinates(season_bubbles)
+
+season_bubbles <- season_bubbles |>
+  st_drop_geometry() |>
+  mutate(
+    x = season_xy[, 1] + if_else(site == "Medlands Beach", medlands_nudge_x, 0),
+    y = season_xy[, 2]
+  ) |>
+  st_as_sf(coords = c("x", "y"), crs = nztm)
+
+season_max_pct <- max(season_bubbles$pct_over)
+
+season_map <- ggplot() +
+  geom_sf(
+    data = aotea,
+    fill = land_col,
+    colour = coast_col,
+    linewidth = 0.2
+  ) +
+  geom_sf(
+    data = season_bubbles,
+    mapping = aes(size = pct_over, fill = bubble_col),
+    shape = 21,
+    colour = "white"
+  ) +
+  geom_text_repel(
+    data = season_bubbles,
+    mapping = aes(label = label, geometry = geometry, colour = bubble_col),
+    stat = "sf_coordinates",
+    family = font,
+    size = 2,
+    lineheight = 0.9,
+    min.segment.length = 0,
+    segment.colour = label_col,
+    segment.size = 0.2,
+    box.padding = 0.4,
+    point.padding = 0.2,
+    max.overlaps = Inf,
+    seed = 1
+  ) +
+  facet_wrap(vars(season), nrow = 1) +
+  scale_fill_manual(values = bubble_pal, name = "Samples above the limit") +
+  scale_colour_manual(values = label_pal, guide = "none") +
+  scale_size_area(
+    max_size = 12,
+    limits = c(0, season_max_pct),
+    labels = scales::label_percent(accuracy = 1),
+    guide = "none"
+  ) +
+  guides(fill = guide_legend(override.aes = list(size = 5, colour = "white"))) +
+  coord_sf(datum = NA, expand = FALSE) +
+  labs(caption = social_caption, x = NULL, y = NULL) +
+  theme_void(base_family = font, base_size = 10) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(color = label_col, size = 8),
+    legend.text = element_text(color = label_col, size = 8),
+    legend.key = element_blank(),
+    legend.background = element_blank(),
+    strip.text = element_text(
+      family = font,
+      color = text_col,
+      face = "bold",
+      size = 11,
+      margin = margin(b = 6)
+    ),
+    plot.margin = margin(10, 10, 10, 10),
+    plot.caption = element_textbox_simple(
+      color = text_col,
+      hjust = 0,
+      margin = margin(t = 10)
+    ),
+    panel.background = element_rect(fill = sea_col, color = NA),
+    panel.spacing = unit(0.5, "lines"),
+    plot.background = element_rect(fill = bg_col, color = bg_col)
+  )
+
+season_map
+
+ggsave(
+  plot = season_map,
+  filename = "output/20260814-aotea_season_maps.png",
+  width = 14,
+  height = 7,
+  unit = "in",
+  bg = bg_col,
+  dpi = 300,
+  device = agg_png
+)
+
+###############################################################################
+##########################
+## Season comparison    ##
+##########################
+
+season_df <- season_bubbles |>
+  st_drop_geometry() |>
+  mutate(
+    site_label = fct_reorder(site_label, pct_over, .fun = mean, .na_rm = TRUE)
+  )
+
+season_pal <- c(
+  "2023/24" = "#B8BCCB",
+  "2024/25" = "#7A7F96",
+  "2025/26" = "#1F2233"
+)
+
+compare_theme <- theme_minimal(base_family = font, base_size = 10) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(color = label_col, size = 8),
+    legend.text = element_text(color = label_col, size = 8),
+    axis.text = element_text(color = text_col),
+    axis.title = element_text(color = label_col, size = 8),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_line(colour = "grey90", linewidth = 0.2),
+    panel.grid.major.x = element_line(colour = "grey90", linewidth = 0.2),
+    plot.margin = margin(10, 10, 10, 10),
+    plot.caption = element_textbox_simple(
+      color = text_col,
+      hjust = 0,
+      margin = margin(t = 10)
+    ),
+    plot.background = element_rect(fill = bg_col, color = bg_col)
+  )
+
+season_range <- season_df |>
+  summarise(
+    xmin = min(pct_over),
+    xmax = max(pct_over),
+    .by = site_label
+  )
+
+dot_chart <- ggplot(season_df, aes(x = pct_over, y = site_label)) +
+  geom_vline(
+    xintercept = c(0.1, 0.3),
+    colour = "grey70",
+    linetype = "dashed",
+    linewidth = 0.3
+  ) +
+  geom_linerange(
+    data = season_range,
+    mapping = aes(xmin = xmin, xmax = xmax, y = site_label),
+    inherit.aes = FALSE,
+    colour = "grey75",
+    linewidth = 0.6
+  ) +
+  geom_point(
+    mapping = aes(colour = season, size = samples),
+    alpha = 0.9
+  ) +
+  scale_colour_manual(values = season_pal, name = "Season") +
+  scale_size_continuous(range = c(1.5, 5), name = "Samples") +
+  scale_x_continuous(
+    labels = scales::label_percent(accuracy = 1),
+    expand = expansion(mult = c(0.02, 0.05))
+  ) +
+  labs(
+    x = "Samples above the limit",
+    y = NULL,
+    caption = social_caption
+  ) +
+  compare_theme +
+  theme(panel.grid.major.y = element_line(colour = "grey93", linewidth = 0.2))
+
+dot_chart
+
+ggsave(
+  plot = dot_chart,
+  filename = "output/20260814-aotea_season_dotchart.png",
+  width = 8,
+  height = 9,
+  unit = "in",
+  bg = bg_col,
+  dpi = 300,
+  device = agg_png
+)
+
+slope_df <- season_df |>
+  mutate(
+    highlight = any(pct_over >= 0.3),
+    .by = site_label
+  )
+
+slope_labels <- slope_df |>
+  filter(highlight) |>
+  slice_max(season, n = 1, by = site_label)
+
+slope_chart <- ggplot(
+  slope_df,
+  aes(x = season, y = pct_over, group = site_label)
+) +
+  geom_hline(
+    yintercept = c(0.1, 0.3),
+    colour = "grey70",
+    linetype = "dashed",
+    linewidth = 0.3
+  ) +
+  geom_line(
+    data = filter(slope_df, !highlight),
+    colour = "#9093A2FF",
+    alpha = 0.6,
+    linewidth = 0.5
+  ) +
+  geom_point(
+    data = filter(slope_df, !highlight),
+    colour = "#9093A2FF",
+    alpha = 0.8,
+    size = 1.5
+  ) +
+  geom_line(
+    data = filter(slope_df, highlight),
+    colour = "#D72000FF",
+    linewidth = 0.8
+  ) +
+  geom_point(
+    data = filter(slope_df, highlight),
+    colour = "#D72000FF",
+    size = 2.5
+  ) +
+  geom_text_repel(
+    data = slope_labels,
+    mapping = aes(label = site_label),
+    family = font,
+    colour = "#D72000FF",
+    size = 2.8,
+    hjust = 0,
+    nudge_x = 0.12,
+    direction = "y",
+    min.segment.length = Inf,
+    seed = 1
+  ) +
+  scale_y_continuous(
+    labels = scales::label_percent(accuracy = 1),
+    expand = expansion(mult = c(0.02, 0.05))
+  ) +
+  scale_x_discrete(expand = expansion(add = c(0.2, 1.2))) +
+  labs(
+    x = NULL,
+    y = "Samples above the limit",
+    caption = social_caption
+  ) +
+  compare_theme +
+  theme(panel.grid.major.x = element_blank())
+
+slope_chart
+
+ggsave(
+  plot = slope_chart,
+  filename = "output/20260814-aotea_season_slope.png",
+  width = 7,
+  height = 8,
   unit = "in",
   bg = bg_col,
   dpi = 300,
