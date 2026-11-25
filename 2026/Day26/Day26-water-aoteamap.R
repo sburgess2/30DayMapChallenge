@@ -108,14 +108,14 @@ brand_font <- "Baloo 2"
 ####################
 
 title_col <- "#131313"
-bg_col <- "#F5F5F5"
+bg_col <- "#fbfaf7"
 text_col <- "#3b3b3b"
 
 label_col <- "#636363"
 brand_color <- "#55692f"
-land_col <- "#D9D9D9"
-sea_col <- "#FCFCFC"
-coast_col <- "#BFBFBF"
+land_col <- "#e6e3dc"
+sea_col <- "#fbfaf7"
+coast_col <- "#e6e3dc"
 ecoli_col <- brand_color
 ent_col <- "#2C6E8F"
 
@@ -157,7 +157,10 @@ ent_subtitle <- glue(
 )
 
 social_caption <- sb_social_caption(
-  data_source = "Safeswim, Auckland Council. Coastline: LINZ Topo 1:50k"
+  data_source = glue(
+    "Safeswim, Auckland Council. Basemap: LINZ Topo 1:50k <br>",
+    "Limits: Enterococci {ent_limit} and *E. coli* {ecoli_limit} MPN/100mL"
+  )
 )
 
 ###############################################################################
@@ -251,7 +254,7 @@ label_pal <- c(
 
 label_nudges <- c("Awana Stream Campground" = 1900)
 
-ggplot() +
+single_map <- ggplot() +
   geom_sf(
     data = aotea,
     fill = land_col,
@@ -260,24 +263,38 @@ ggplot() +
   ) +
   geom_sf(
     data = other_bubbles,
-    mapping = aes(size = pct_over, fill = bubble_col),
-    shape = 21,
-    colour = "white"
-    #stroke = 0.3,
-    #alpha = 0.5
+    mapping = aes(
+      size = pct_over,
+      fill = if_else(
+        indicator == "Enterococci",
+        "Ring",
+        as.character(bubble_col)
+      ),
+      colour = bubble_col,
+      shape = indicator
+    ),
+    stroke = 1
   ) +
   geom_sf(
     data = medlands_beach,
-    mapping = aes(size = pct_over, fill = bubble_col),
-    shape = 21,
-    colour = "white"
-    #alpha = 0.5
+    mapping = aes(
+      size = pct_over,
+      fill = if_else(
+        indicator == "Enterococci",
+        "Ring",
+        as.character(bubble_col)
+      ),
+      colour = bubble_col,
+      shape = indicator
+    ),
+    stroke = 1
   ) +
   geom_text_repel(
-    data = label_sites,
-    mapping = aes(label = label, geometry = geometry, colour = bubble_col),
+    data = filter(label_sites, bubble_col == "30% or more"),
+    mapping = aes(label = label, geometry = geometry),
     stat = "sf_coordinates",
     family = font,
+    colour = "#D72000FF",
     size = 2.5,
     lineheight = 0.9,
     min.segment.length = 0,
@@ -288,58 +305,116 @@ ggplot() +
     max.overlaps = Inf,
     seed = 1
   ) +
-  scale_fill_manual(values = bubble_pal) +
-  scale_colour_manual(values = label_pal, guide = "none") +
+  geom_text_repel(
+    data = filter(label_sites, bubble_col != "30% or more"),
+    mapping = aes(label = label, geometry = geometry),
+    stat = "sf_coordinates",
+    family = font,
+    colour = text_col,
+    size = 2.5,
+    lineheight = 0.9,
+    min.segment.length = 0,
+    segment.colour = label_col,
+    segment.size = 0.2,
+    box.padding = 0.5,
+    point.padding = 0.3,
+    max.overlaps = Inf,
+    seed = 1
+  ) +
+  scale_fill_manual(
+    values = c(bubble_pal, "Ring" = "white"),
+    breaks = names(bubble_pal),
+    name = "Samples above the limit"
+  ) +
+  scale_colour_manual(values = bubble_pal, name = "Samples above the limit") +
+  scale_shape_manual(
+    values = c("E. coli" = 21, "Enterococci" = 21),
+    breaks = c("E. coli", "Enterococci"),
+    labels = c(
+      "E. coli" = "Filled = stream or estuary (*E. coli*)",
+      "Enterococci" = "Ring = beach (Enterococci)"
+    ),
+    name = NULL
+  ) +
+  guides(
+    fill = guide_legend(order = 1, override.aes = list(shape = 19, size = 5)),
+    colour = guide_legend(order = 1),
+    shape = guide_legend(
+      order = 2,
+      override.aes = list(
+        size = 5,
+        colour = "grey50",
+        fill = c("grey50", "white")
+      )
+    )
+  ) +
   scale_size_area(
     max_size = 14,
     limits = c(0, max_pct),
     breaks = c(min_pct, max_pct),
     labels = scales::label_percent(accuracy = 1),
-    guide = guide_legend(
-      title = "Proportion of samples above the limit",
-      title.position = "top",
-      direction = "horizontal",
-      override.aes = list(
-        shape = 21,
-        fill = "grey70",
-        colour = "white"
-        #alpha = 0.5
-      )
-    )
+    guide = "none"
   ) +
   coord_sf(datum = NA, expand = FALSE) +
   labs(
-    title = plot_title,
-    subtitle = plot_subtitle,
+    title = str_wrap(plot_title, 50),
+    subtitle = str_wrap(plot_subtitle, 100),
+    caption = social_caption,
     x = NULL,
     y = NULL
   ) +
   theme_void(base_family = font, base_size = 10) +
   theme(
-    legend.position = "bottom",
+    legend.position = "inside",
+    legend.position.inside = c(0.02, 0.98),
+    legend.justification = c(0, 1),
+    legend.box = "vertical",
+    legend.box.just = "left",
+    legend.spacing.y = unit(0.6, "lines"),
     legend.title = element_text(color = label_col, size = 8),
-    legend.text = element_text(color = label_col, size = 8),
+    legend.text = element_markdown(color = label_col, size = 9),
     legend.key = element_blank(),
     legend.background = element_blank(),
     plot.title.position = "plot",
-    plot.margin = margin(10, 10, 10, 10),
+    plot.margin = margin(10, 10, 10, 20),
     plot.caption = element_textbox_simple(
       color = text_col,
       hjust = 0,
       margin = margin(t = 10)
     ),
-    #plot.title = element_textbox_simple(
-    #  color = title_col,
-    # face = "bold",
-    #size = rel(1.2)
-    #),
-    plot.subtitle = element_textbox_simple(
+    plot.title = element_text(
+      family = font,
+      color = title_col,
+      face = "bold",
+      size = rel(1.5),
+      hjust = 0,
+      lineheight = 1,
+      margin = margin(b = 6)
+    ),
+    plot.subtitle = element_text(
+      family = font,
       color = text_col,
-      margin = margin(t = 5, b = 14)
+      size = rel(1),
+      hjust = 0,
+      lineheight = 1,
+      margin = margin(b = 12)
     ),
     panel.background = element_rect(fill = sea_col, color = NA),
     plot.background = element_rect(fill = bg_col, color = bg_col)
   )
+
+single_map
+
+ggsave(
+  plot = single_map,
+  filename = "output/20260814-aotea_single_map.png",
+  width = 7,
+  height = 8,
+  unit = "in",
+  bg = bg_col,
+  dpi = 300,
+  device = agg_png
+)
 
 record_polaroid()
 ecoli_map <- map_sites(ecoli_bubbles, ecoli_col, ecoli_subtitle)
@@ -607,94 +682,3 @@ dot_chart <- ggplot(season_df, aes(x = pct_over, y = site_label)) +
   theme(panel.grid.major.y = element_line(colour = "grey93", linewidth = 0.2))
 
 dot_chart
-
-ggsave(
-  plot = dot_chart,
-  filename = "output/20260814-aotea_season_dotchart.png",
-  width = 8,
-  height = 9,
-  unit = "in",
-  bg = bg_col,
-  dpi = 300,
-  device = agg_png
-)
-
-slope_df <- season_df |>
-  mutate(
-    highlight = any(pct_over >= 0.3),
-    .by = site_label
-  )
-
-slope_labels <- slope_df |>
-  filter(highlight) |>
-  slice_max(season, n = 1, by = site_label)
-
-slope_chart <- ggplot(
-  slope_df,
-  aes(x = season, y = pct_over, group = site_label)
-) +
-  geom_hline(
-    yintercept = c(0.1, 0.3),
-    colour = "grey70",
-    linetype = "dashed",
-    linewidth = 0.3
-  ) +
-  geom_line(
-    data = filter(slope_df, !highlight),
-    colour = "#9093A2FF",
-    alpha = 0.6,
-    linewidth = 0.5
-  ) +
-  geom_point(
-    data = filter(slope_df, !highlight),
-    colour = "#9093A2FF",
-    alpha = 0.8,
-    size = 1.5
-  ) +
-  geom_line(
-    data = filter(slope_df, highlight),
-    colour = "#D72000FF",
-    linewidth = 0.8
-  ) +
-  geom_point(
-    data = filter(slope_df, highlight),
-    colour = "#D72000FF",
-    size = 2.5
-  ) +
-  geom_text_repel(
-    data = slope_labels,
-    mapping = aes(label = site_label),
-    family = font,
-    colour = "#D72000FF",
-    size = 2.8,
-    hjust = 0,
-    nudge_x = 0.12,
-    direction = "y",
-    min.segment.length = Inf,
-    seed = 1
-  ) +
-  scale_y_continuous(
-    labels = scales::label_percent(accuracy = 1),
-    expand = expansion(mult = c(0.02, 0.05))
-  ) +
-  scale_x_discrete(expand = expansion(add = c(0.2, 1.2))) +
-  labs(
-    x = NULL,
-    y = "Samples above the limit",
-    caption = social_caption
-  ) +
-  compare_theme +
-  theme(panel.grid.major.x = element_blank())
-
-slope_chart
-
-ggsave(
-  plot = slope_chart,
-  filename = "output/20260814-aotea_season_slope.png",
-  width = 7,
-  height = 8,
-  unit = "in",
-  bg = bg_col,
-  dpi = 300,
-  device = agg_png
-)
