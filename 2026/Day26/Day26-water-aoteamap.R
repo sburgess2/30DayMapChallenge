@@ -136,8 +136,8 @@ linkedin_username <- "sa-burgess2"
 ## Titles, subtitles, captions   ##
 ###################################
 
-plot_title <- "Two Aotea swimming spots fail water testing half the time"
-plot_subtitle <- "Proportion of samples above the safe swimming limit at each monitored site. Check safeswim.org.nz before swimming at Awana Stream, Medlands Stream or Mulberry Grove South."
+plot_title <- "Two Aotea swimming spots fail water testing more than half the time"
+plot_subtitle <- "Proportion of samples above the safe swimming limit at each monitored site for the Oct-Apr 2023/24, 2024/25, 2025/26 swimming seasons. Check safeswim.org.nz before swimming."
 
 ent_limit <- 280
 ecoli_limit <- 550
@@ -407,7 +407,7 @@ single_map
 
 ggsave(
   plot = single_map,
-  filename = "output/20260814-aotea_single_map.png",
+  filename = "2026/Day26/output/20260814-aotea_single_map.png",
   width = 7,
   height = 8,
   unit = "in",
@@ -417,30 +417,133 @@ ggsave(
 )
 
 record_polaroid()
-ecoli_map <- map_sites(ecoli_bubbles, ecoli_col, ecoli_subtitle)
 
-ent_map <- map_sites(ent_bubbles, ent_col, ent_subtitle)
+gg_resize_film(width = 11, height = 8, units = "in", dpi = 300)
+
+map_sites <- function(bubbles, panel_title) {
+  panel_labels <- bubbles |>
+    mutate(
+      site_label = str_squish(str_remove_all(site, "\\s*\\([^)]*\\)")),
+      label = glue("{site_label}\n{scales::percent(pct_over, accuracy = 1)}")
+    )
+
+  ggplot() +
+    geom_sf(
+      data = aotea,
+      fill = land_col,
+      colour = coast_col,
+      linewidth = 0.2
+    ) +
+    geom_sf(
+      data = bubbles,
+      mapping = aes(size = pct_over, fill = bubble_col),
+      shape = 21,
+      colour = "white",
+      stroke = 0.8
+    ) +
+    geom_text_repel(
+      data = filter(panel_labels, bubble_col == "30% or more"),
+      mapping = aes(label = label, geometry = geometry),
+      stat = "sf_coordinates",
+      family = font,
+      fontface = "bold",
+      colour = "#D72000FF",
+      size = 2.5,
+      lineheight = 0.9,
+      min.segment.length = 0,
+      segment.colour = label_col,
+      segment.size = 0.2,
+      box.padding = 0.5,
+      point.padding = 0.3,
+      max.overlaps = Inf,
+      seed = 1
+    ) +
+    geom_text_repel(
+      data = filter(panel_labels, bubble_col != "30% or more"),
+      mapping = aes(label = label, geometry = geometry),
+      stat = "sf_coordinates",
+      family = font,
+      colour = text_col,
+      size = 2.5,
+      lineheight = 0.9,
+      min.segment.length = 0,
+      segment.colour = label_col,
+      segment.size = 0.2,
+      box.padding = 0.5,
+      point.padding = 0.3,
+      max.overlaps = Inf,
+      seed = 1
+    ) +
+    scale_fill_manual(
+      values = bubble_pal,
+      drop = FALSE,
+      name = "Samples above the limit"
+    ) +
+    scale_size_area(
+      max_size = 14,
+      limits = c(0, max_pct),
+      guide = "none"
+    ) +
+    guides(fill = guide_legend(override.aes = list(size = 5))) +
+    coord_sf(datum = NA, expand = FALSE) +
+    labs(title = panel_title, x = NULL, y = NULL) +
+    theme_void(base_family = font, base_size = 10) +
+    theme(
+      plot.title = element_markdown(
+        family = font,
+        color = title_col,
+        face = "bold",
+        size = rel(1.2),
+        hjust = 0,
+        lineheight = 1.1,
+        margin = margin(b = 8)
+      ),
+      plot.title.position = "plot",
+      panel.background = element_rect(fill = sea_col, color = NA),
+      plot.background = element_rect(fill = bg_col, color = bg_col)
+    )
+}
+
+ecoli_map <- map_sites(
+  ecoli_bubbles,
+  glue("*E. coli*: streams and estuary")
+)
+
+ent_map <- map_sites(
+  ent_bubbles,
+  glue("Enterococci: beaches")
+)
 
 aotea_maps <- ecoli_map +
   ent_map +
   plot_layout(guides = "collect") +
   plot_annotation(
-    #title = plot_title,
+    title = plot_title,
+    subtitle = str_wrap(plot_subtitle, 130),
     caption = social_caption,
     theme = theme(
       legend.position = "bottom",
       legend.title = element_text(family = font, color = label_col, size = 8),
-      legend.text = element_text(family = font, color = label_col, size = 8),
+      legend.text = element_text(family = font, color = label_col, size = 9),
       legend.key = element_blank(),
       legend.background = element_blank(),
       plot.title.position = "plot",
       plot.margin = margin(10, 10, 10, 10),
-      plot.title = element_textbox_simple(
+      plot.title = element_text(
         family = font,
         color = title_col,
         face = "bold",
-        size = rel(1.2),
-        margin = margin(b = 10)
+        size = 18,
+        hjust = 0,
+        margin = margin(b = 6)
+      ),
+      plot.subtitle = element_text(
+        family = font,
+        color = text_col,
+        size = 10,
+        hjust = 0,
+        lineheight = 1,
+        margin = margin(b = 12)
       ),
       plot.caption = element_textbox_simple(
         family = font,
@@ -464,9 +567,9 @@ gg_stop_recording()
 
 ggsave(
   plot = aotea_maps,
-  filename = "output/20260814-aotea_maps.png",
+  filename = "2026/Day26/output/20260814-aotea_maps.png",
   width = 11,
-  height = 7,
+  height = 8,
   unit = "in",
   bg = bg_col,
   dpi = 300,
@@ -597,7 +700,7 @@ season_map
 
 ggsave(
   plot = season_map,
-  filename = "output/20260814-aotea_season_maps.png",
+  filename = "2026/Day26/output/20260814-aotea_season_maps.png",
   width = 14,
   height = 7,
   unit = "in",
@@ -682,3 +785,14 @@ dot_chart <- ggplot(season_df, aes(x = pct_over, y = site_label)) +
   theme(panel.grid.major.y = element_line(colour = "grey93", linewidth = 0.2))
 
 dot_chart
+
+ggsave(
+  plot = dot_chart,
+  filename = "2026/Day26/output/20260814-aotea_season_dotchart.png",
+  width = 8,
+  height = 9,
+  unit = "in",
+  bg = bg_col,
+  dpi = 300,
+  device = agg_png
+)
