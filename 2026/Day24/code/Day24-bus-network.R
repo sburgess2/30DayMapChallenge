@@ -329,10 +329,10 @@ school_points <- stops_sf |>
   st_transform(2193)
 
 west <- 175.545
-east <- 175.720
+east <- 175.730
 
 south <- -40.410
-north <- -40.325
+north <- -40.322
 
 map_box <- st_bbox(
   c(xmin = west, xmax = east, ymin = south, ymax = north),
@@ -379,7 +379,8 @@ new_bus_routes <- tribble(
   ~bus                          , ~route    ,
   "Awatapu and PN Intermediate" , "D080217" ,
   "St Peter's"                  , "D080212" ,
-  "Girls' High"                 , "D080218"
+  "Girls' High"                 , "D080218" ,
+  "Longburn Adventist"          , "D080230"
 )
 
 new_bus_levels <- new_bus_routes$bus
@@ -399,18 +400,7 @@ new_buses |>
   st_drop_geometry() |>
   mutate(km = as.numeric(st_length(new_buses)) / 1000)
 
-needs_loop <- which(new_buses$bus != "St Peter's")
-
-st_geometry(new_buses)[needs_loop] <- map(
-  needs_loop,
-  \(i) st_union(c(st_geometry(new_buses)[i], loop_parts))
-) |>
-  do.call(what = c)
-
-new_bus_colours <- c("#CC79A7", "#E69F00", "#56B4E9") |>
-  set_names(new_bus_levels)
-
-new_bus_widths <- c(4.5, 2.8, 1.2) |>
+new_bus_colours <- c("#CC79A7", "#E69F00", "#56B4E9", "#009E73") |>
   set_names(new_bus_levels)
 
 bus_colours <- c("black", "#CC79A7", "#E69F00", "#009E73") |>
@@ -418,7 +408,7 @@ bus_colours <- c("black", "#CC79A7", "#E69F00", "#009E73") |>
 
 bus_gap <- 0.0055 * unname(map_extent["xmax"] - map_extent["xmin"])
 
-new_shifts <- c(1, 0, -1) * bus_gap
+new_shifts <- c(1, 0, -1, 0) * bus_gap
 
 shifted_lines <- map2(
   st_geometry(new_buses),
@@ -448,10 +438,10 @@ bg_col <- "white"
 
 plot_title <- "Three school buses now run along Polson Hill Drive, where one bus used to service five schools"
 
-subtitle <- "Morning school bus routes from Aokautere to Palmerston North intermediate and high schools, before and after the Term 1 2026 changes. From 2026 there was no longer an Aokautere bus for Boys High School and Long"
+subtitle <- "Morning school bus routes from Aokautere to Palmerston North intermediate and high schools, before and after the Term 1 2026 changes. From 2026 there was no longer an Aokautere bus for Boys High School and Longburn Adventist College."
 
 social_caption <- sb_social_caption(
-  data_source = "Data: Ministry of Education school bus routes and route changes notice (Term 1 2026); OpenStreetMap contributors. Before routes are approximate."
+  data_source = "Ministry of Education school bus routes and route changes notice (Term 1 2026); OpenStreetMap contributors. Before routes are approximate."
 )
 
 label_points <- function(x) {
@@ -519,10 +509,12 @@ base_map <- function() {
       plot.title.position = "plot",
       plot.margin = margin(10, 10, 10, 10),
       plot.title = ggtext::element_textbox_simple(
+        family = font,
         colour = text_col,
         face = "bold",
         size = 12,
-        margin = margin(b = 6)
+        lineheight = 1.15,
+        margin = margin(b = 10)
       ),
       panel.background = element_rect(fill = bg_col, colour = NA),
       plot.background = element_rect(fill = bg_col, colour = NA),
@@ -554,7 +546,9 @@ school_layers <- function(points, grey_labels = character()) {
     left_join(school_groups, by = "label") |>
     mutate(
       group = replace_na(group, "other"),
-      group = if_else(label %in% grey_labels, "other", group)
+      group = if_else(label %in% grey_labels, "other", group),
+      nudge_x = if_else(label == "Girls' High (transfer)", 400, 0),
+      nudge_y = if_else(label == "Girls' High (transfer)", 400, 0)
     )
 
   list(
@@ -575,6 +569,8 @@ school_layers <- function(points, grey_labels = character()) {
       size = 8 / .pt,
       bg.colour = "white",
       bg.r = 0.15,
+      nudge_x = points$nudge_x,
+      nudge_y = points$nudge_y,
       min.segment.length = 0,
       seed = 24
     )
@@ -601,7 +597,7 @@ map_before <- base_map() +
   bus_count_label("1 bus") +
   scale_colour_manual(values = c(bus_colours, label_colours)) +
   labs(
-    title = "Before: one bus from Polson Hill, with transfers at Girls' High"
+    title = "Before: one bus along Polson Hill, with transfers at Girls High and Boys High School."
   )
 
 map_after <- base_map() +
@@ -620,40 +616,158 @@ map_after <- base_map() +
   scale_colour_manual(values = c(new_bus_colours, label_colours)) +
   labs(title = "Now: three buses along Polson Hill Drive")
 
-map_polson <- (map_before + map_after) +
+polson_annotation <- plot_annotation(
+  title = plot_title,
+  subtitle = subtitle,
+  caption = social_caption,
+  theme = theme(
+    plot.title.position = "plot",
+    plot.title = ggtext::element_textbox_simple(
+      family = font,
+      colour = text_col,
+      face = "bold",
+      size = 16,
+      lineheight = 1.15,
+      margin = margin(b = 10)
+    ),
+    plot.subtitle = ggtext::element_textbox_simple(
+      family = font,
+      colour = text_col,
+      size = 11,
+      lineheight = 1.2,
+      margin = margin(b = 14)
+    ),
+    plot.caption = ggtext::element_textbox_simple(
+      family = "Baloo 2",
+      colour = text_col,
+      hjust = 0,
+      margin = margin(t = 10)
+    ),
+    plot.background = element_rect(fill = bg_col, colour = NA)
+  )
+)
+
+map_polson <- (map_before + map_after) + polson_annotation
+
+map_polson
+gg_stop_recording()
+ggsave(
+  "2026/Day24/output/polson_hill_before_after.png",
+  map_polson,
+  width = 14,
+  height = 9,
+  dpi = 300,
+  device = ragg::agg_png,
+  bg = "white"
+)
+
+south_portrait <- -40.410
+
+portrait_extent <- st_bbox(
+  c(xmin = west, xmax = east, ymin = south_portrait, ymax = north),
+  crs = 4326
+) |>
+  st_as_sfc() |>
+  st_transform(2193) |>
+  st_bbox()
+
+portrait_limits <- coord_sf(
+  xlim = as.numeric(portrait_extent[c("xmin", "xmax")]),
+  ylim = as.numeric(portrait_extent[c("ymin", "ymax")]),
+  expand = FALSE
+)
+
+panel_label <- function(label) {
+  annotate(
+    "label",
+    x = portrait_extent[["xmin"]] + 400,
+    y = portrait_extent[["ymax"]] - 400,
+    label = label,
+    hjust = 0,
+    vjust = 1,
+    family = font,
+    fontface = "bold",
+    colour = text_col,
+    fill = "white",
+    linewidth = 0,
+    size = 9 / .pt
+  )
+}
+
+map_before_portrait <- map_before +
+  portrait_limits +
+  panel_label("Before: one bus along Polson Hill") +
+  labs(title = NULL)
+
+map_after_portrait <- map_after +
+  portrait_limits +
+  panel_label("Now: three buses along Polson Hill Drive") +
+  labs(title = NULL)
+
+subtitle_portrait <- "Morning school bus routes from Aokautere to Palmerston North intermediate and high schools, before and after the Term 1 2026 changes."
+
+map_polson_portrait <- (map_before_portrait / map_after_portrait) &
+  theme(
+    plot.margin = margin(4, 6, 4, 6),
+    plot.title = ggtext::element_textbox_simple(
+      family = font,
+      colour = text_col,
+      face = "bold",
+      size = 9,
+      lineheight = 1.1,
+      margin = margin(b = 3)
+    )
+  )
+
+map_polson_portrait <- map_polson_portrait +
   plot_annotation(
     title = plot_title,
-    subtitle = subtitle,
+    subtitle = subtitle_portrait,
     caption = social_caption,
     theme = theme(
       plot.title.position = "plot",
       plot.title = ggtext::element_textbox_simple(
+        family = font,
         colour = text_col,
         face = "bold",
-        size = 16,
-        margin = margin(b = 5)
+        size = 10,
+        lineheight = 1.1,
+        margin = margin(b = 10)
       ),
       plot.subtitle = ggtext::element_textbox_simple(
+        family = font,
         colour = text_col,
-        size = 11,
+        size = 8.5,
+        lineheight = 1,
         margin = margin(b = 10)
       ),
       plot.caption = ggtext::element_textbox_simple(
         family = "Baloo 2",
         colour = text_col,
+        size = 8,
         hjust = 0,
-        margin = margin(t = 10)
+        margin = margin(t = 4)
       ),
+      plot.margin = margin(8, 8, 8, 8),
       plot.background = element_rect(fill = bg_col, colour = NA)
     )
   )
 
-map_polson
+gg_record(
+  device = "png",
+  width = 8,
+  height = 9,
+  unit = "in",
+  dpi = 300
+)
 
+map_polson_portrait
+
+gg_stop_recording()
 ggsave(
-  "2026/Day24/output/polson_hill_before_after.png",
-  map_polson,
-  width = 14,
+  "2026/Day24/output/polson_hill_before_after_portrait.png",
+  map_polson_portrait,
+  width = 8,
   height = 9,
   dpi = 300,
   device = ragg::agg_png,
