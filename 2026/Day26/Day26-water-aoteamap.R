@@ -136,7 +136,7 @@ linkedin_username <- "sa-burgess2"
 ## Titles, subtitles, captions   ##
 ###################################
 
-plot_title <- "Two Aotea swimming spots fail water testing more than half the time"
+plot_title <- "Two Aotea swimming spots were above the water quality limits more than half the time"
 plot_subtitle <- "Proportion of samples above the safe swimming limit at each monitored site for the Oct-Apr 2023/24, 2024/25, 2025/26 swimming seasons. Check safeswim.org.nz before swimming."
 
 ent_limit <- 280
