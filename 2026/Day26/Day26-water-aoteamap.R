@@ -170,15 +170,15 @@ social_caption <- sb_social_caption(
 
 gg_record(
   device = png,
-  width = 7,
-  height = 8,
+  width = 11,
+  height = 9.5,
   unit = "in",
   dpi = 300
 )
 
 bubble_pal <- c(
   "30% or more" = "#D72000FF",
-  "10-29%" = "#FFAD0AFF",
+  "10-29.9%" = "#FFAD0AFF",
   "Under 10%" = "#9093A2FF"
 )
 
@@ -206,11 +206,11 @@ site_bubbles <- water |>
   ) |>
   mutate(
     bubble_col = case_when(
-      pct_over >= 0.3 ~ "30% or more",
-      pct_over >= 0.1 ~ "10-29%",
+      round(pct_over * 100, 1) >= 30 ~ "30% or more",
+      round(pct_over * 100, 1) >= 10 ~ "10-29.9%",
       .default = "Under 10%"
     ) |>
-      factor(levels = c("30% or more", "10-29%", "Under 10%"))
+      factor(levels = names(bubble_pal))
   ) |>
   #mutate(label = site) |>
   st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
@@ -243,12 +243,12 @@ other_bubbles <- site_bubbles |>
 label_sites <- bind_rows(other_bubbles, medlands_beach) |>
   mutate(
     site_label = str_squish(str_remove_all(site, "\\s*\\([^)]*\\)")),
-    label = glue("{site_label}\n{scales::percent(pct_over, accuracy = 1)}")
+    label = glue("{site_label}\n{scales::percent(pct_over, accuracy = 0.1)}")
   )
 
 label_pal <- c(
   "30% or more" = "#D72000FF",
-  "10-29%" = text_col,
+  "10-29.9%" = text_col,
   "Under 10%" = text_col
 )
 
@@ -256,13 +256,84 @@ label_nudges <- c("Awana Stream Campground" = 1900)
 
 record_polaroid()
 
-gg_resize_film(width = 11, height = 8, units = "in", dpi = 300)
+bubble_radius_m <- 1500
+label_gap_m <- 350
+
+label_adj <- tribble(
+  ~site_label               ,
+  ~side                     ,
+  ~dy                       ,
+  "Awana Stream Campground" ,
+  "left"                    ,
+                          0 ,
+  "Kaitoke Creek"           ,
+  "left"                    ,
+                          0 ,
+  "Medlands Stream"         ,
+  "left"                    ,
+                          0 ,
+  "Garden Road Stream"      ,
+  "left"                    ,
+                          0 ,
+  "Whangapoua Estuary"      ,
+  "right"                   ,
+                          0 ,
+  "Karaka Bay"              ,
+  "left"                    ,
+                          0 ,
+  "Port Fitzroy"            ,
+  "right"                   ,
+                          0 ,
+  "Okupu Beach"             ,
+  "left"                    ,
+                          0 ,
+  "Medlands North"          ,
+  "right"                   ,
+                       1000 ,
+  "Medlands Beach"          ,
+  "right"                   ,
+                       -300 ,
+  "Pah Beach"               ,
+  "right"                   ,
+                        800 ,
+  "Puriri Bay"              ,
+  "left"                    ,
+                       -300 ,
+  "Mulberry Grove South"    ,
+  "below"                   ,
+                          0
+)
 
 map_sites <- function(bubbles, panel_title) {
+  site_xy <- st_coordinates(bubbles)
+
   panel_labels <- bubbles |>
+    st_drop_geometry() |>
     mutate(
+      x = site_xy[, 1],
+      y = site_xy[, 2],
       site_label = str_squish(str_remove_all(site, "\\s*\\([^)]*\\)")),
-      label = glue("{site_label}\n{scales::percent(pct_over, accuracy = 1)}")
+      label = glue("{site_label}\n{scales::percent(pct_over, accuracy = 0.1)}"),
+      radius = bubble_radius_m * sqrt(pct_over / max_pct) + label_gap_m
+    ) |>
+    left_join(label_adj, by = "site_label") |>
+    mutate(
+      side = replace_na(side, "right"),
+      dy = replace_na(dy, 0),
+      label_x = case_when(
+        side == "right" ~ x + radius,
+        side == "left" ~ x - radius,
+        .default = x
+      ),
+      label_y = case_when(
+        side == "below" ~ y - radius - 600,
+        .default = y + dy
+      ),
+      label_hjust = case_when(
+        side == "right" ~ 0,
+        side == "left" ~ 1,
+        .default = 0.5
+      )
     )
 
   ggplot() +
@@ -279,38 +350,32 @@ map_sites <- function(bubbles, panel_title) {
       colour = "white",
       stroke = 0.8
     ) +
-    geom_text_repel(
+    geom_text(
       data = filter(panel_labels, bubble_col == "30% or more"),
-      mapping = aes(label = label, geometry = geometry),
-      stat = "sf_coordinates",
+      mapping = aes(
+        x = label_x,
+        y = label_y,
+        label = label,
+        hjust = label_hjust
+      ),
       family = font,
       fontface = "bold",
       colour = "#D72000FF",
       size = 2.5,
-      lineheight = 0.9,
-      min.segment.length = 0,
-      segment.colour = label_col,
-      segment.size = 0.2,
-      box.padding = 0.5,
-      point.padding = 0.3,
-      max.overlaps = Inf,
-      seed = 1
+      lineheight = 0.9
     ) +
-    geom_text_repel(
+    geom_text(
       data = filter(panel_labels, bubble_col != "30% or more"),
-      mapping = aes(label = label, geometry = geometry),
-      stat = "sf_coordinates",
+      mapping = aes(
+        x = label_x,
+        y = label_y,
+        label = label,
+        hjust = label_hjust
+      ),
       family = font,
       colour = text_col,
       size = 2.5,
-      lineheight = 0.9,
-      min.segment.length = 0,
-      segment.colour = label_col,
-      segment.size = 0.2,
-      box.padding = 0.5,
-      point.padding = 0.3,
-      max.overlaps = Inf,
-      seed = 1
+      lineheight = 0.9
     ) +
     scale_fill_manual(
       values = bubble_pal,
@@ -357,7 +422,7 @@ aotea_maps <- ecoli_map +
   plot_layout(guides = "collect") +
   plot_annotation(
     title = plot_title,
-    subtitle = str_wrap(plot_subtitle, 130),
+    subtitle = str_wrap(plot_subtitle, 135),
     caption = social_caption,
     theme = theme(
       legend.position = "bottom",
@@ -371,7 +436,7 @@ aotea_maps <- ecoli_map +
         family = font,
         color = title_col,
         face = "bold",
-        size = 18,
+        size = 16,
         hjust = 0,
         margin = margin(b = 6)
       ),
@@ -396,6 +461,8 @@ aotea_maps <- ecoli_map +
 
 aotea_maps
 
+record_polaroid()
+
 gg_stop_recording()
 
 ###############################################################################
@@ -407,7 +474,7 @@ ggsave(
   plot = aotea_maps,
   filename = "2026/Day26/output/20260814-aotea_maps.png",
   width = 11,
-  height = 8,
+  height = 9.5,
   unit = "in",
   bg = bg_col,
   dpi = 300,
@@ -446,13 +513,13 @@ season_bubbles <- water |>
   ) |>
   mutate(
     bubble_col = case_when(
-      pct_over >= 0.3 ~ "30% or more",
-      pct_over >= 0.1 ~ "10-29%",
+      round(pct_over * 100, 1) >= 30 ~ "30% or more",
+      round(pct_over * 100, 1) >= 10 ~ "10-29.9%",
       .default = "Under 10%"
     ) |>
-      factor(levels = c("30% or more", "10-29%", "Under 10%")),
+      factor(levels = names(bubble_pal)),
     site_label = str_squish(str_remove_all(site, "\\s*\\([^)]*\\)")),
-    label = glue("{site_label}\n{scales::percent(pct_over, accuracy = 1)}")
+    label = glue("{site_label}\n{scales::percent(pct_over, accuracy = 0.1)}")
   ) |>
   st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
   st_transform(nztm)
