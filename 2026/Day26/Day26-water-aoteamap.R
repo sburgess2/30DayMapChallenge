@@ -13,8 +13,6 @@ library(camcorder)
 library(sf)
 library(ggrepel)
 library(patchwork)
-library(fontawesome)
-library(png)
 
 ###############################################################################
 ###############
@@ -53,43 +51,12 @@ aotea_window <- st_bbox(
   st_as_sfc() |>
   st_transform(nztm)
 
-#coast_path <- list.files(
-# "data/linz",
-# pattern = "\.shp$",
-# recursive = TRUE,
-# full.names = TRUE
-#)[1]
-
 aotea <- st_read(
   "2026/Day26/data/lds-nz-coastlines-and-islands-polygons-topo-150k-SHP/nz-coastlines-and-islands-polygons-topo-150k.shp"
 ) |>
   st_transform(nztm) |>
   st_make_valid() |>
   st_intersection(aotea_window)
-
-###############################################################################
-#############################
-## Look at data (EDA)      ##
-#############################
-
-str(water)
-glimpse(water)
-unique(water$location_type)
-water[!complete.cases(water), ]
-
-st_crs(aotea)
-st_bbox(aotea)
-nrow(aotea)
-
-water |>
-  summarise(
-    n = n(),
-    n_ent = sum(!is.na(enterococci)),
-    n_ecoli = sum(!is.na(e_coli)),
-    lon = first(lon),
-    lat = first(lat),
-    .by = c(site, location_type)
-  )
 
 ###############################################################################
 ################
@@ -100,7 +67,6 @@ require_font("Lato")
 require_font("Baloo 2")
 
 font <- "Lato"
-brand_font <- "Baloo 2"
 
 ###############################################################################
 ####################
@@ -116,45 +82,18 @@ brand_color <- "#55692f"
 land_col <- "#e6e3dc"
 sea_col <- "#fbfaf7"
 coast_col <- "#e6e3dc"
-ecoli_col <- brand_color
-ent_col <- "#2C6E8F"
 
-
-###############################################################################
-###############################
-## Social media variables    ##
-###############################
-
-github_icon <- "&#xf09b"
-github_username <- "sburgess2"
-
-linkedin_icon <- "&#xf08c"
-linkedin_username <- "sa-burgess2"
 
 ###############################################################################
 ###################################
 ## Titles, subtitles, captions   ##
 ###################################
 
-plot_title <- "Two Aotea swimming spots were above the water quality limits more than half the time"
+plot_title <- "Two Aotea swimming spots were above the safe swimming limits in more than half of the samples"
 plot_subtitle <- "Proportion of samples above the safe swimming limit at each monitored site for the Oct-Apr 2023/24, 2024/25, 2025/26 swimming seasons. Check safeswim.org.nz before swimming."
 
 ent_limit <- 280
 ecoli_limit <- 550
-
-ecoli_subtitle <- glue(
-  "<span style='color:{ecoli_col}'>*E. coli* at freshwater and estuary ",
-  "sites</span> <span style='color:{label_col}'>. The size of each bubble indicates the percentage of samples",
-  " (collected Oct-Apr, 2023/24 to 2025/26) above ",
-  "{ecoli_limit} MPN/100mL</span>"
-)
-
-ent_subtitle <- glue(
-  "<span style='color:{ent_col}'>Enterococci at marine sites</span> ",
-  "<span style='color:{label_col}'>. The size of each bubble indicates the percentage of samples",
-  " (collected Oct-Apr, 2023/24 to 2025/26) above ",
-  "{ent_limit} MPN/100mL</span>"
-)
 
 social_caption <- sb_social_caption(
   data_source = glue(
@@ -212,7 +151,6 @@ site_bubbles <- water |>
     ) |>
       factor(levels = names(bubble_pal))
   ) |>
-  #mutate(label = site) |>
   st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
   st_transform(nztm)
 
@@ -223,38 +161,15 @@ ecoli_bubbles <- site_bubbles |>
 ent_bubbles <- site_bubbles |>
   filter(indicator == "Enterococci")
 
-min_pct <- min(site_bubbles$pct_over)
 max_pct <- max(site_bubbles$pct_over)
 
 medlands_nudge_x <- 400
-
-medlands_beach <- site_bubbles |>
-  filter(site == "Medlands Beach") |>
-  mutate(
-    geometry = st_set_crs(
-      st_geometry(geometry) + c(medlands_nudge_x, 0),
-      st_crs(site_bubbles)
-    )
-  )
-
-other_bubbles <- site_bubbles |>
-  filter(site != "Medlands Beach")
-
-label_sites <- bind_rows(other_bubbles, medlands_beach) |>
-  mutate(
-    site_label = str_squish(str_remove_all(site, "\\s*\\([^)]*\\)")),
-    label = glue("{site_label}\n{scales::percent(pct_over, accuracy = 0.1)}")
-  )
 
 label_pal <- c(
   "30% or more" = "#D72000FF",
   "10-29.9%" = text_col,
   "Under 10%" = text_col
 )
-
-label_nudges <- c("Awana Stream Campground" = 1900)
-
-record_polaroid()
 
 bubble_radius_m <- 1500
 label_gap_m <- 350
@@ -388,7 +303,7 @@ map_sites <- function(bubbles, panel_title) {
       guide = "none"
     ) +
     guides(fill = guide_legend(override.aes = list(size = 5))) +
-    coord_sf(datum = NA, expand = FALSE) +
+    coord_sf(datum = NA, expand = FALSE, clip = "off") +
     labs(title = panel_title, x = NULL, y = NULL) +
     theme_void(base_family = font, base_size = 10) +
     theme(
@@ -402,6 +317,7 @@ map_sites <- function(bubbles, panel_title) {
         margin = margin(b = 8)
       ),
       plot.title.position = "plot",
+      plot.margin = margin(5, 30, 5, 5),
       panel.background = element_rect(fill = sea_col, color = NA),
       plot.background = element_rect(fill = bg_col, color = bg_col)
     )
@@ -466,7 +382,7 @@ record_polaroid()
 gg_stop_recording()
 
 ###############################################################################
-##############1
+##############
 ## Save png ##
 ##############
 
@@ -478,6 +394,30 @@ ggsave(
   unit = "in",
   bg = bg_col,
   dpi = 300,
+  device = agg_png
+)
+
+###############################################################################
+#######################
+## Instagram version ##
+#######################
+
+aotea_maps_instagram <- aotea_maps +
+  plot_annotation(
+    title = str_wrap(plot_title, 55),
+    subtitle = str_wrap(plot_subtitle, 90)
+  )
+
+aotea_maps_instagram
+
+ggsave(
+  plot = aotea_maps_instagram,
+  filename = "2026/Day26/output/20260814-aotea_maps_instagram.png",
+  width = 7.5,
+  height = 9.375,
+  unit = "in",
+  bg = bg_col,
+  dpi = 144,
   device = agg_png
 )
 
